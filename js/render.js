@@ -311,6 +311,10 @@ export function createRenderer(canvas) {
     ctx.drawImage(deskCache, 0, 0);
     ctx.setTransform(1, 0, 0, 1, shx, shy);
 
+    if (sim.zones) for (const z of sim.zones) drawZone(z);
+    if (stormInset > 0) drawStorm(tNow);
+    if (sim.props) for (const p of sim.props) drawProp(p);
+
     // Fall animations, under the live pens (progress on scaled time)
     for (let i = falls.length - 1; i >= 0; i--) {
       const f = falls[i];
@@ -345,7 +349,8 @@ export function createRenderer(canvas) {
         teetering.delete(uid);
       }
 
-      drawPen(data.pen, d.x, d.y, d.angle + wobble, 1, 1, true);
+      const lift = sim.airborneLift ? sim.airborneLift(uid) : 0;
+      drawPen(data.pen, d.x, d.y, d.angle + wobble, 1 + lift * 0.2, 1, true, lift * 0.35);
     });
     for (const uid of [...drawn.keys()]) if (!seen.has(uid)) { drawn.delete(uid); teetering.delete(uid); }
 
@@ -359,6 +364,129 @@ export function createRenderer(canvas) {
       ctx.fillRect(0, 0, cw, ch);
       flash *= Math.exp(-dt / 0.1);
     } else flash = 0;
+  }
+
+  // ---------- desk clutter ----------
+
+  function drawZone(z) {
+    const s = view.toScreen(z.x, z.y);
+    const r = z.r * eScale;
+    ctx.save();
+    if (z.kind === "ink") {
+      ctx.fillStyle = "rgba(18,26,80,0.55)";
+      for (const [dx, dy, k] of [[0, 0, 1], [0.55, 0.3, 0.45], [-0.5, 0.42, 0.38], [0.2, -0.55, 0.42]]) {
+        ctx.beginPath();
+        ctx.arc(s.x + dx * r, s.y + dy * r, r * k, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      ctx.beginPath();
+      ctx.arc(s.x - r * 0.25, s.y - r * 0.3, r * 0.16, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = "rgba(235,200,120,0.32)";
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,240,190,0.4)";
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawProp(p) {
+    const s = view.toScreen(p.x, p.y);
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(p.angle || 0);
+    const W = (p.w || p.r * 2) * eScale;
+    const H = (p.h || p.r * 2) * eScale;
+    // shared drop shadow
+    ctx.fillStyle = "rgba(10,5,0,0.3)";
+    if (p.shape === "circle") {
+      ctx.beginPath(); ctx.arc(3 * dpr, 5 * dpr, (p.r * eScale), 0, Math.PI * 2); ctx.fill();
+    } else {
+      rr(ctx, -W / 2 + 3 * dpr, -H / 2 + 5 * dpr, W, H, 4 * dpr); ctx.fill();
+    }
+    if (p.kind === "eraser") {
+      ctx.fillStyle = "#f2f2ee";
+      rr(ctx, -W / 2, -H / 2, W, H, H * 0.2); ctx.fill();
+      ctx.fillStyle = "#3d7bff";
+      rr(ctx, -W / 2, -H / 2, W, H * 0.42, H * 0.2); ctx.fill();
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.font = `${Math.round(H * 0.28)}px "Space Grotesk", sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText("NATRAJ?", 0, H * 0.3);
+    } else if (p.kind === "geometry") {
+      const mg = ctx.createLinearGradient(0, -H / 2, 0, H / 2);
+      mg.addColorStop(0, "#cdd6e2"); mg.addColorStop(0.5, "#9aa5b5"); mg.addColorStop(1, "#78828f");
+      ctx.fillStyle = mg;
+      rr(ctx, -W / 2, -H / 2, W, H, 5 * dpr); ctx.fill();
+      ctx.strokeStyle = "rgba(40,48,60,0.7)";
+      ctx.lineWidth = 1.5 * dpr;
+      rr(ctx, -W / 2, -H / 2, W, H, 5 * dpr); ctx.stroke();
+      ctx.fillStyle = "#525c68";
+      rr(ctx, -W * 0.12, -H / 2, W * 0.24, H * 0.12, 2 * dpr); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.5)";
+      ctx.font = `${Math.round(H * 0.2)}px "Space Grotesk", sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText("CAMLIN", 0, H * 0.12);
+    } else if (p.kind === "book") {
+      ctx.fillStyle = "#e8e2d0";
+      rr(ctx, -W / 2 + 2 * dpr, -H / 2 + 2 * dpr, W, H, 3 * dpr); ctx.fill();
+      ctx.fillStyle = "#b3402e";
+      rr(ctx, -W / 2, -H / 2, W, H, 3 * dpr); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      rr(ctx, -W * 0.32, -H * 0.26, W * 0.64, H * 0.2, 2 * dpr); ctx.fill();
+      ctx.fillStyle = "rgba(30,10,5,0.8)";
+      ctx.font = `${Math.round(H * 0.14)}px "Space Grotesk", sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText("MATHS 10", 0, -H * 0.1);
+      ctx.fillStyle = "rgba(30,10,5,0.35)";
+      ctx.fillRect(-W / 2, H * 0.28, W, 1.5 * dpr);
+    } else if (p.kind === "sharpener") {
+      const r = p.r * eScale;
+      const mg = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.2, 0, 0, r);
+      mg.addColorStop(0, "#e6ebf4"); mg.addColorStop(1, "#8b94a3");
+      ctx.fillStyle = mg;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#2b2f38";
+      rr(ctx, -r * 0.55, -r * 0.18, r * 1.1, r * 0.36, 2 * dpr); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  let stormInset = 0;
+  function setStorm(inset) { stormInset = inset; }
+
+  function drawStorm(tNow) {
+    const half = tableHalf(table);
+    ctx.save();
+    ctx.strokeStyle = "rgba(250,250,245,0.75)";
+    ctx.lineWidth = 2.5 * dpr;
+    ctx.setLineDash([9 * dpr, 7 * dpr]);
+    ctx.lineDashOffset = (tNow / 60) % (16 * dpr);
+    if (table.shape === "round") {
+      const c = view.toScreen(0, 0);
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, (half.x - stormInset) * eScale, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      const a = view.toScreen(-half.x + stormInset, -half.y + stormInset);
+      const b = view.toScreen(half.x - stormInset, half.y - stormInset);
+      ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+      // danger band outside the line
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(255,84,112,0.09)";
+      const o1 = view.toScreen(-half.x, -half.y);
+      const o2 = view.toScreen(half.x, half.y);
+      ctx.beginPath();
+      ctx.rect(o1.x, o1.y, o2.x - o1.x, o2.y - o1.y);
+      ctx.rect(a.x, a.y, b.x - a.x, b.y - a.y);
+      ctx.fill("evenodd");
+    }
+    ctx.restore();
   }
 
   function drawHighlight(x, y, pen, tNow) {
@@ -510,7 +638,7 @@ export function createRenderer(canvas) {
   resize();
 
   return {
-    view, resize, draw, addFall, softenNextFrames, setTable, drawPenSprite: drawPen,
+    view, resize, draw, addFall, softenNextFrames, setTable, setStorm, drawPenSprite: drawPen,
     fx, camFollow, camHome, killCam, introPulse,
     confettiBurst() { fx.confetti(cw, ch, dpr); },
     shake(mag) { shakeMag = Math.min(16, shakeMag + mag); },

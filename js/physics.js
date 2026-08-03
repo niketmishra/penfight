@@ -20,6 +20,10 @@ export const PHYS = {
   maxOmega: 42,              // sanity cap on spin, rad/s
   magnusK: 0.008,            // spin curve strength
   magnusCap: 6.0,            // max lateral accel from spin, units/s^2
+  airborneImpulse: 2.3,      // tip hits above this launch the victim
+  airborneImpulseHeavy: 1.5, // launcher pens (metal) need less
+  airborneTime: 0.42,        // seconds of flight
+  mountGap: 0.42,            // landing this close to another pen mounts it
   settleLin: 0.06,           // below this speed a pen counts as still
   settleAng: 0.15,
   settleHold: 0.5,           // must stay still this long, seconds
@@ -27,14 +31,32 @@ export const PHYS = {
   hitImpulseMin: 0.55        // contacts above this fire hit events (sound, shake)
 };
 
-export function createSim({ table = tableById("classroom"), holes = [], zones = [] } = {}) {
+export function createSim({ table = tableById("classroom"), holes = [], zones = [], props = [] } = {}) {
   const world = new pl.World({ gravity: new pl.Vec2(0, 0) });
   const bodies = new Map();     // uid -> pen body
   const statics = [];           // furniture bodies (never in snapshots)
   const half = tableHalf(table);
+  const airborne = new Map();   // uid -> {t, total}
+  const mountPairs = new Set(); // "a|b" pairs excluded from collision
   let pendingHits = [];
+  let pendingEvents = [];
   let stillTime = 0;
   let simTime = 0;
+
+  const pairKey = (a, b) => (a < b ? a + "|" + b : b + "|" + a);
+
+  // Airborne pens sail over everything on the desk.
+  world.on("pre-solve", contact => {
+    const udA = contact.getFixtureA().getBody().getUserData() || {};
+    const udB = contact.getFixtureB().getBody().getUserData() || {};
+    if ((udA.uid && airborne.has(udA.uid)) || (udB.uid && airborne.has(udB.uid))) {
+      contact.setEnabled(false);
+      return;
+    }
+    if (udA.uid && udB.uid && mountPairs.has(pairKey(udA.uid, udB.uid))) {
+      contact.setEnabled(false);
+    }
+  });
 
   world.on("post-solve", (contact, impulse) => {
     let max = 0;
@@ -44,10 +66,23 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     const bB = contact.getFixtureB().getBody();
     const wm = contact.getWorldManifold(null);
     const p = wm && wm.points.length ? wm.points[0] : bA.getPosition();
-    pendingHits.push({
-      type: "hit", impulse: max, x: p.x, y: p.y,
-      a: hitSide(bA, p), b: hitSide(bB, p)
-    });
+    const a = hitSide(bA, p), b = hitSide(bB, p);
+    pendingHits.push({ type: "hit", impulse: max, x: p.x, y: p.y, a, b });
+
+    // Hard tip hits launch the victim airborne (chadhai setup).
+    const [fast, slow] = a.speed >= b.speed ? [a, b] : [b, a];
+    if (!slow.uid || slow.furniture || !fast.uid) return;
+    const victimBody = bodies.get(slow.uid);
+    if (!victimBody) return;
+    const victimPen = victimBody.getUserData().pen;
+    if (victimPen.airborneImmune) return;
+    const striker = fast.uid ? bodies.get(fast.uid) : null;
+    const strikerPen = striker ? striker.getUserData().pen : null;
+    const threshold = strikerPen && strikerPen.launcher ? PHYS.airborneImpulseHeavy : PHYS.airborneImpulse;
+    if (slow.nearTip && max > threshold && !airborne.has(slow.uid)) {
+      airborne.set(slow.uid, { t: PHYS.airborneTime, total: PHYS.airborneTime });
+      pendingEvents.push({ type: "airborne", uid: slow.uid, x: p.x, y: p.y });
+    }
   });
 
   function hitSide(body, worldPt) {
@@ -95,7 +130,25 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
   function removePen(uid) {
     const b = bodies.get(uid);
     if (b) { world.destroyBody(b); bodies.delete(uid); }
+    airborne.delete(uid);
+    for (const key of [...mountPairs]) {
+      if (key.split("|").includes(uid)) mountPairs.delete(key);
+    }
   }
+
+  function addProp(prop) {
+    const body = world.createBody({
+      position: new pl.Vec2(prop.x, prop.y),
+      angle: prop.angle || 0
+    });
+    const opts = { friction: prop.friction ?? 0.4, restitution: prop.restitution ?? 0.3 };
+    if (prop.shape === "circle") body.createFixture(new pl.Circle(prop.r), opts);
+    else body.createFixture(new pl.Box(prop.w / 2, prop.h / 2), opts);
+    body.setUserData({ furniture: true, kind: prop.kind, prop });
+    statics.push(body);
+    return body;
+  }
+  for (const prop of props) addProp(prop);
 
   // params: { dx, dy, J, off } with (dx, dy) normalized, off along the pen's
   // long axis from its center. Offset flicks produce torque automatically.
@@ -171,7 +224,40 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     world.step(dt, 8, 3);
     simTime += dt;
 
-    const events = pendingHits;
+    // Airborne flight timers: on landing, an overlap becomes a mount.
+    for (const [uid, air] of [...airborne.entries()]) {
+      air.t -= dt;
+      if (air.t > 0) continue;
+      airborne.delete(uid);
+      const body = bodies.get(uid);
+      if (!body) continue;
+      const p = body.getPosition();
+      let under = null;
+      for (const [ouid, other] of bodies.entries()) {
+        if (ouid === uid) continue;
+        const op = other.getPosition();
+        if (Math.hypot(p.x - op.x, p.y - op.y) < PHYS.mountGap
+          && !other.getUserData().pen.airborneImmune) { under = ouid; break; }
+      }
+      if (under) {
+        mountPairs.add(pairKey(uid, under));
+        pendingEvents.push({ type: "mount", rider: uid, under, x: p.x, y: p.y });
+      } else {
+        pendingEvents.push({ type: "land", uid, x: p.x, y: p.y });
+      }
+    }
+
+    // Mounted pairs separate once they drift apart.
+    for (const key of [...mountPairs]) {
+      const [a, b] = key.split("|");
+      const ba = bodies.get(a), bb = bodies.get(b);
+      if (!ba || !bb) { mountPairs.delete(key); continue; }
+      const pa = ba.getPosition(), pb = bb.getPosition();
+      if (Math.hypot(pa.x - pb.x, pa.y - pb.y) > PHYS.mountGap * 2.2) mountPairs.delete(key);
+    }
+
+    const events = [...pendingHits, ...pendingEvents];
+    pendingEvents = [];
     // A pen is gone the moment its center of mass leaves the surface or
     // drops into a hole.
     for (const [uid, body] of [...bodies.entries()]) {
@@ -199,12 +285,21 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
   }
 
   function allStill() {
+    if (airborne.size) return false;
     for (const body of bodies.values()) {
       const v = body.getLinearVelocity();
       if (Math.hypot(v.x, v.y) > PHYS.settleLin) return false;
       if (Math.abs(body.getAngularVelocity()) > PHYS.settleAng) return false;
     }
     return true;
+  }
+
+  // 0..1 flight arc for the renderer's lift and shadow separation.
+  function airborneLift(uid) {
+    const air = airborne.get(uid);
+    if (!air) return 0;
+    const k = 1 - air.t / air.total;          // 0 at launch, 1 at landing
+    return Math.sin(k * Math.PI);             // parabolic-ish arc
   }
 
   function isSettled() {
@@ -241,8 +336,8 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
   }
 
   return {
-    world, bodies, statics, table, holes, zones, half,
-    addPen, removePen, applyFlick, step,
+    world, bodies, statics, table, holes, zones, props, half,
+    addPen, removePen, addProp, applyFlick, step, airborneLift,
     isSettled, snapshot, applySnapshot, eachPen,
     resetSimClock() { simTime = 0; stillTime = 0; },
     getBody(uid) { return bodies.get(uid); }

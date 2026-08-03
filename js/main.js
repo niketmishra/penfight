@@ -142,7 +142,8 @@ function wireMatch(m, players) {
     const who = ev.player ? ev.player.name : null;
     if (who) {
       const self = ev.ownerId === m.state.currentId;
-      const evName = ev.cause === "hole" ? "holeKill"
+      const evName = ev.cause === "storm" ? "stormKill"
+        : ev.cause === "hole" ? "holeKill"
         : self ? "selfKill"
         : m.state.fallenThisTurn.length >= 2 ? "multiKill" : "kill";
       ui.comment(commentate(evName, { name: who }));
@@ -158,10 +159,33 @@ function wireMatch(m, players) {
     }
   });
 
+  m.on("airborne", ev => {
+    sfx.whoosh(1.2);
+    renderer.fx.burst(ev.x, ev.y, 2.5, "spark");
+  });
+  m.on("land", ev => {
+    renderer.fx.burst(ev.x, ev.y, 2, "dust");
+    sfx.vibrate(30);
+  });
+  m.on("mount", ev => {
+    sfx.clack(4, "plastic");
+    sfx.vibrate(70);
+    renderer.fx.burst(ev.x, ev.y, 3, "dust");
+    ui.comment(commentate("mount", { name: ev.underPlayer ? ev.underPlayer.name : "" }));
+  });
+
+  let stormAnnounced = false;
+
   m.on("turn", t => {
     refreshChips(m, players);
     renderer.camHome();
     timeScale = 1;
+    const inset = m.stormInset(m.state.turnIdx);
+    renderer.setStorm(inset);
+    if (inset > 0 && !stormAnnounced) {
+      stormAnnounced = true;
+      ui.comment(commentate("storm"));
+    }
     const mine = t.playerId === myId;
     const p = m.byId.get(t.playerId);
     ui.setTurnBanner(mine ? "Your turn, flick!" : `${p ? p.name : "..."} is lining up`, mine);
@@ -191,6 +215,7 @@ function wireMatch(m, players) {
   m.on("over", ({ winnerId, winnerTeam }) => {
     sfx.ambience(false);
     renderer.camHome();
+    renderer.setStorm(0);
     timeScale = 1;
     const me = m.byId.get(myId);
     const iWon = winnerId === myId || (winnerTeam != null && me && me.team === winnerTeam);
@@ -260,7 +285,7 @@ async function startOnline(kind, code) {
   session.on("host", () => {
     if (session.status === "lobby") ui.renderLobby(session.roster, myId, session.hostId);
   });
-  session.on("start", ({ order, layout }) => beginOnlineMatch(order, layout));
+  session.on("start", payload => beginOnlineMatch(payload));
   session.on("emoji", ({ emoji }) => ui.floatEmoji(emoji));
   session.on("turn", t => {
     if (!match) return;
@@ -309,7 +334,7 @@ async function startOnline(kind, code) {
   });
 }
 
-function beginOnlineMatch(order, layout) {
+function beginOnlineMatch({ order, layout, props = [], zones = [] }) {
   const mode = modeById(session.modeId);
   const players = session.roster.map(p => ({
     ...p, isBot: false,
@@ -317,7 +342,8 @@ function beginOnlineMatch(order, layout) {
   }));
   match = createMatch({
     players, autoAdvance: false,
-    mode: session.modeId, tableId: session.tableId
+    mode: session.modeId, tableId: session.tableId,
+    props, zones
   });
   renderer.setTable(match.table, { holes: match.holes });
   wireMatch(match, players);
@@ -340,8 +366,12 @@ function cleanupMatch() {
   if (session) { session.leave(); session = null; }
   match = null;
   turnDeadline = null;
+  timeScale = 1;
   flick.disarm();
   renderer.setHighlight(null);
+  renderer.setStorm(0);
+  renderer.camHome();
+  sfx.ambience(false);
   ui.setTimer(null);
 }
 

@@ -27,7 +27,9 @@ const shapes = {
   [EV.READY]: p => typeof p.ready === "boolean",
   [EV.START]: p => Array.isArray(p.order) && Array.isArray(p.layout)
     && (p.mode === undefined || str(p.mode))
-    && (p.tableId === undefined || str(p.tableId)),
+    && (p.tableId === undefined || str(p.tableId))
+    && (p.props === undefined || Array.isArray(p.props))
+    && (p.zones === undefined || Array.isArray(p.zones)),
   [EV.TURN_START]: p => num(p.turnIdx) && str(p.playerId) && num(p.deadlineTs),
   [EV.FLICK]: p => num(p.turnIdx) && num(p.dx) && num(p.dy) && num(p.J) && num(p.off)
     && Array.isArray(p.preStates),

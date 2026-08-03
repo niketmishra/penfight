@@ -133,3 +133,57 @@ export function inHole(holes, x, y) {
   }
   return null;
 }
+
+// Desk clutter per table: static obstacles (props) and friction zones.
+// Deterministic given the rand source, so the host can generate and share.
+const PROP_SHAPES = {
+  eraser: { shape: "box", w: 0.72, h: 0.36, friction: 0.9, restitution: 0.06 },
+  geometry: { shape: "box", w: 1.15, h: 0.78, friction: 0.25, restitution: 0.75 },
+  book: { shape: "box", w: 1.7, h: 1.15, friction: 0.5, restitution: 0.22 },
+  sharpener: { shape: "circle", r: 0.2, friction: 0.4, restitution: 0.45 }
+};
+
+const TABLE_CLUTTER = {
+  classroom: { props: [["eraser", 0.4]], zones: [["ink", 0.3]] },
+  examhall: { props: [["geometry", 0.85], ["eraser", 0.45]], zones: [["ink", 0.25]] },
+  canteen: { props: [["sharpener", 0.5]], zones: [["sticky", 0.5]] },
+  lastbench: { props: [["book", 0.8], ["sharpener", 0.5]], zones: [] },
+  teachersdesk: { props: [], zones: [["ink", 0.25]] }
+};
+
+const ZONE_SHAPES = {
+  ink: { r: 0.75, frictionMult: 0.28 },
+  sticky: { r: 0.65, frictionMult: 3.2 }
+};
+
+export function genProps(table, rand = Math.random) {
+  const clutter = TABLE_CLUTTER[table.id] || { props: [], zones: [] };
+  const half = tableHalf(table);
+  const props = [], zones = [];
+  const taken = [];
+  const place = radius => {
+    for (let tries = 0; tries < 14; tries++) {
+      const x = (rand() - 0.5) * half.x * 0.9;
+      const y = (rand() - 0.5) * half.y * 0.75;
+      if (Math.hypot(x, y) > Math.min(half.x, half.y) * 0.72) continue;   // keep off the pen ring
+      if (taken.every(t => Math.hypot(x - t.x, y - t.y) > t.r + radius + 0.3)) {
+        taken.push({ x, y, r: radius });
+        return { x, y };
+      }
+    }
+    return null;
+  };
+  for (const [kind, chance] of clutter.props) {
+    if (rand() > chance) continue;
+    const shape = PROP_SHAPES[kind];
+    const spot = place(Math.max(shape.w || 0, shape.h || 0, (shape.r || 0) * 2) / 2);
+    if (spot) props.push({ kind, ...shape, ...spot, angle: (rand() - 0.5) * 1.2 });
+  }
+  for (const [kind, chance] of clutter.zones) {
+    if (rand() > chance) continue;
+    const shape = ZONE_SHAPES[kind];
+    const spot = place(shape.r);
+    if (spot) zones.push({ kind, ...shape, ...spot });
+  }
+  return { props, zones };
+}

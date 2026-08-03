@@ -6,7 +6,7 @@
 import { createSim, PHYS } from "./physics.js";
 import { penById } from "./pens.js";
 import { modeById, decideWinner } from "./modes.js";
-import { tableById, tableHalf, holesFor } from "./tables.js";
+import { tableById, tableHalf, holesFor, genProps, edgeClearance } from "./tables.js";
 
 export function genLayout(players, table = tableById("classroom"), rand = Math.random) {
   // Pens in a ring around the center, tangential-ish, with jitter.
@@ -26,11 +26,14 @@ export function genLayout(players, table = tableById("classroom"), rand = Math.r
   });
 }
 
-export function createMatch({ players, autoAdvance = true, mode = "classic", tableId = "classroom", flickLimit = 0 }) {
+export function createMatch({ players, autoAdvance = true, mode = "classic", tableId = "classroom", flickLimit = 0, props = null, zones = null }) {
   const modeCfg = typeof mode === "string" ? modeById(mode) : mode;
   const table = tableById(tableId);
   const holes = modeCfg.holes ? holesFor(table) : [];
-  const sim = createSim({ table, holes });
+  const clutter = props != null ? { props, zones: zones || [] }
+    : modeCfg.targets ? { props: [], zones: [] }
+    : genProps(table);
+  const sim = createSim({ table, holes, props: clutter.props, zones: clutter.zones });
   const listeners = {};
   const state = {
     phase: "idle",            // idle | aiming | sim | settled | over
@@ -149,8 +152,19 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
       for (const ev of events) {
         if (ev.type === "hit") emit("hit", ev);
         else if (ev.type === "fall") handleFall(ev);
+        else if (ev.type === "airborne") emit("airborne", { ...ev, player: byId.get(ev.uid) });
+        else if (ev.type === "land") emit("land", ev);
+        else if (ev.type === "mount") {
+          markSkip(ev.under);
+          emit("mount", {
+            ...ev,
+            riderPlayer: byId.get(ev.rider),
+            underPlayer: byId.get(ev.under)
+          });
+        }
       }
       if (state.phase === "sim" && sim.isSettled()) {
+        applyStorm();
         state.phase = "settled";
         const v = verdict();
         const result = {
@@ -170,6 +184,37 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
           else advanceTurn();
         }
         break;
+      }
+    }
+  }
+
+  // Chalk-line storm: the safe zone shrinks as the match drags on.
+  // Pure function of turnIdx, so online clients agree without messages.
+  function stormInset(turnIdx) {
+    if (!modeCfg.storm) return 0;
+    const start = players.length * 3 + 2;
+    const half = tableHalf(table);
+    const cap = Math.min(half.x, half.y) - 1.1;
+    return Math.min(cap, Math.max(0, turnIdx - start) * 0.22);
+  }
+
+  function applyStorm() {
+    const base = stormInset(state.turnIdx);
+    if (base <= 0) return;
+    for (const [uid, body] of [...sim.bodies.entries()]) {
+      const pen = body.getUserData().pen;
+      const eff = stormInset(state.turnIdx - (pen.stormGrace || 0) * 4);
+      if (eff <= 0) continue;
+      const p = body.getPosition();
+      if (edgeClearance(table, p.x, p.y) < eff) {
+        const ev = {
+          type: "fall", uid, cause: "storm",
+          ownerId: body.getUserData().ownerId,
+          penId: body.getUserData().penId,
+          x: p.x, y: p.y, angle: body.getAngle(), vx: 0, vy: 0.6, w: 3
+        };
+        sim.removePen(uid);
+        handleFall(ev);
       }
     }
   }
@@ -238,8 +283,9 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
 
   return {
     sim, players, byId, state, on, mode: modeCfg, table, holes,
+    props: clutter.props, zones: clutter.zones,
     start, setTurn, advanceTurn, applyFlick, update, forceSettle, finish,
-    markDead, markSkip,
+    markDead, markSkip, stormInset,
     aliveIds, targetsLeft: () => targetUids.size,
     isAlive: id => Boolean(alive.get(id)),
     currentPlayer: () => byId.get(state.currentId)

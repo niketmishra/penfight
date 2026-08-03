@@ -7,7 +7,7 @@ import { genCode } from "./code.js";
 import { insertRoom, fetchRoom, setRoomStatus, openChannel } from "./net.js";
 import { genLayout } from "./game.js";
 import { modeById, decideWinner, teamOfSeat } from "./modes.js";
-import { tableById } from "./tables.js";
+import { tableById, genProps } from "./tables.js";
 
 const TURN_SECONDS = 20;
 const SETTLE_GRACE_MS = 15000;   // striker crashed mid-sim (covers one kill cam)
@@ -344,10 +344,12 @@ async function connect(code, me, amCreator) {
     if (s.mode.teams && s.players.length < 4) return;   // 2v2 minimum
     const order = s.players.map(p => p.id);
     shuffle(order);
+    const table = tableById(s.tableId);
     const layout = genLayout(
       s.players.map(p => ({ id: p.id, penId: p.penId })),
-      tableById(s.tableId)
+      table
     );
+    const clutter = s.mode.targets ? { props: [], zones: [] } : genProps(table);
     s.status = "playing";
     rematchVotes = new Set();
     for (const p of s.players) p.alive = true;
@@ -355,7 +357,10 @@ async function connect(code, me, amCreator) {
     pendingSkips.clear();
     lastTurn = { turnIdx: -1, playerId: null };
     setRoomStatus(code, "playing").catch(() => {});
-    const payload = { order, layout, mode: s.modeId, tableId: s.tableId };
+    const payload = {
+      order, layout, mode: s.modeId, tableId: s.tableId,
+      props: clutter.props, zones: clutter.zones
+    };
     send(EV.START, payload);
     emit("start", payload);
     setTimeout(hostNextTurn, 1200);

@@ -1,0 +1,103 @@
+// Bot opponents for practice mode. They aim at a scored target with gaussian
+// noise, pick an impulse that carries them roughly to the target, and add a
+// little contact offset so their shots have natural spin.
+
+import { HALF, PHYS } from "./physics.js";
+import { penById } from "./pens.js";
+import { J_MAX } from "./flick.js";
+
+const BOT_NAMES = ["Bunty", "Chintu", "Pinky", "Golu", "Mona"];
+
+export function botRoster(count, excludePenId, penPool) {
+  const pens = penPool.filter(p => p.id !== excludePenId);
+  shuffle(pens);
+  return Array.from({ length: count }, (_, i) => ({
+    id: "bot-" + i,
+    name: BOT_NAMES[i % BOT_NAMES.length],
+    penId: (pens[i % pens.length] || penPool[0]).id,
+    isBot: true,
+    sigma: 0.08 + Math.random() * 0.1,      // aim noise, radians
+    caution: 0.6 + Math.random() * 0.8      // self-preservation weight
+  }));
+}
+
+export function attachBots(match) {
+  let timer = null;
+  match.on("turn", ({ player }) => {
+    if (!player || !player.isBot) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => takeTurn(match, player), 800 + Math.random() * 800);
+  });
+  match.on("over", () => clearTimeout(timer));
+  return { cancel: () => clearTimeout(timer) };
+}
+
+function takeTurn(match, bot) {
+  if (match.state.phase !== "aiming" || match.state.currentId !== bot.id) return;
+  const me = match.sim.getBody(bot.id);
+  if (!me) { match.advanceTurn(); return; }
+  const myPos = me.getPosition();
+  const myPen = penById(bot.penId);
+
+  let best = null;
+  match.sim.eachPen((uid, data, x, y) => {
+    if (uid === bot.id) return;
+    const dx = x - myPos.x, dy = y - myPos.y;
+    const dist = Math.hypot(dx, dy) || 0.001;
+    const dirX = dx / dist, dirY = dy / dist;
+    // How close is the target to falling if pushed along this line?
+    const exitDist = distToEdge(x, y, dirX, dirY);
+    const edgeBonus = Math.max(0, 1.6 - exitDist) * 0.9;
+    // Would this shot carry me off too? Stopping distance at full send.
+    const a = PHYS.fricDecel * myPen.linDampMult;
+    const vMax = J_MAX / myPen.mass;
+    const stopDist = (vMax * vMax) / (2 * a);
+    const myExit = distToEdge(myPos.x, myPos.y, dirX, dirY);
+    const selfRisk = stopDist > myExit ? bot.caution * Math.min(1, dist / myExit) : 0;
+    const score = 1.5 / dist + edgeBonus - selfRisk;
+    if (!best || score > best.score) best = { score, x, y, dist, dirX, dirY };
+  });
+  if (!best) { match.advanceTurn(); return; }
+
+  // Aim with noise
+  const noise = gauss() * bot.sigma;
+  const cos = Math.cos(noise), sin = Math.sin(noise);
+  const dx = best.dirX * cos - best.dirY * sin;
+  const dy = best.dirX * sin + best.dirY * cos;
+
+  // Impulse: enough to reach the target and carry it toward the edge.
+  // Aiming through the target, not just at it, is what ends duels.
+  const a = PHYS.fricDecel * myPen.linDampMult;
+  const carry = Math.min(3.5, distToEdge(best.x, best.y, dx, dy) * 0.8 + 0.5);
+  const vNeed = Math.sqrt(2 * a * (best.dist + carry)) * (1.15 + Math.random() * 0.25);
+  const J = Math.min(J_MAX, Math.max(J_MAX * 0.2, vNeed * myPen.mass));
+
+  match.applyFlick(bot.id, {
+    dx, dy, J,
+    off: gauss() * 0.18
+  });
+}
+
+function distToEdge(x, y, dx, dy) {
+  // Distance along (dx, dy) from (x, y) to the table boundary.
+  let best = Infinity;
+  if (dx > 1e-6) best = Math.min(best, (HALF.x - x) / dx);
+  if (dx < -1e-6) best = Math.min(best, (-HALF.x - x) / dx);
+  if (dy > 1e-6) best = Math.min(best, (HALF.y - y) / dy);
+  if (dy < -1e-6) best = Math.min(best, (-HALF.y - y) / dy);
+  return Math.max(0, best);
+}
+
+function gauss() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}

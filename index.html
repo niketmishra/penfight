@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Pen Fight</title>
+<meta name="description" content="The classic school bench game. Flick your pen, knock theirs off the desk, last pen standing wins.">
+<meta name="theme-color" content="#0a0d16">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="table"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="turn-banner"></div>
+  <div id="timer-wrap" class="hidden"><div id="timer-bar"></div></div>
+  <div id="chips"></div>
+  <button id="btn-quit" class="ghost-btn" type="button">Leave</button>
+  <div id="emoji-bar" class="hidden">
+    <button class="emoji-btn" type="button">🔥</button>
+    <button class="emoji-btn" type="button">😂</button>
+    <button class="emoji-btn" type="button">😱</button>
+    <button class="emoji-btn" type="button">👏</button>
+  </div>
+</div>
+
+<div class="screen" id="s-home">
+  <div class="stack">
+    <div class="logo">
+      <span class="logo-pen">✒️</span>
+      <h1>PEN<br>FIGHT</h1>
+    </div>
+    <p class="tagline">The school bench classic. Flick your pen, clear the desk, last pen standing wins.</p>
+    <div class="btn-col">
+      <button id="btn-practice" class="big-btn" type="button">Practice vs bots</button>
+      <button id="btn-create" class="big-btn accent" type="button">Create room</button>
+      <button id="btn-join" class="big-btn accent" type="button">Join room</button>
+    </div>
+    <p id="online-hint" class="hint hidden">Online play is not set up yet. Open README.md, add your Supabase keys to js/config.js.</p>
+  </div>
+</div>
+
+<div class="screen hidden" id="s-picker">
+  <div class="stack tall">
+    <h2>Choose your weapon</h2>
+    <div id="pen-carousel"></div>
+    <div id="pen-info">
+      <h3 id="pen-name"></h3>
+      <p id="pen-inspo"></p>
+      <p id="pen-trait"></p>
+      <div id="pen-stats"></div>
+    </div>
+    <div id="practice-opts" class="row hidden">
+      <span>Opponents</span>
+      <button id="bots-minus" class="step-btn" type="button">-</button>
+      <b id="bots-count">3</b>
+      <button id="bots-plus" class="step-btn" type="button">+</button>
+    </div>
+    <label class="name-row">Playing as
+      <input id="name-input" maxlength="16" autocomplete="off" placeholder="your name">
+    </label>
+    <div class="row">
+      <button id="picker-back" class="ghost-btn" type="button">Back</button>
+      <button id="picker-go" class="big-btn accent" type="button">Let's go</button>
+    </div>
+  </div>
+</div>
+
+<div class="screen hidden" id="s-join">
+  <div class="stack">
+    <h2>Join a room</h2>
+    <p class="hint">Ask the host for their 6 letter code</p>
+    <input id="code-input" maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="CODE">
+    <p id="join-error" class="error hidden"></p>
+    <div class="row">
+      <button id="join-back" class="ghost-btn" type="button">Back</button>
+      <button id="join-go" class="big-btn accent" type="button">Join</button>
+    </div>
+  </div>
+</div>
+
+<div class="screen hidden" id="s-lobby">
+  <div class="stack tall">
+    <h2>Room</h2>
+    <button id="lobby-code" class="code-chip" type="button" title="Tap to share">......</button>
+    <p class="hint">Tap the code to share it. 2 to 6 players.</p>
+    <ul id="lobby-roster"></ul>
+    <p id="lobby-status" class="hint"></p>
+    <div class="row">
+      <button id="lobby-leave" class="ghost-btn" type="button">Leave</button>
+      <button id="lobby-ready" class="big-btn" type="button">I'm ready</button>
+      <button id="lobby-start" class="big-btn accent hidden" type="button">Start</button>
+    </div>
+  </div>
+</div>
+
+<div class="screen hidden" id="s-victory">
+  <div class="stack">
+    <div id="victory-emoji">🏆</div>
+    <h2 id="victory-title"></h2>
+    <p id="victory-sub"></p>
+    <div class="btn-col">
+      <button id="btn-rematch" class="big-btn accent" type="button">Rematch</button>
+      <button id="btn-home" class="big-btn" type="button">Home</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+<div id="float-emoji"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

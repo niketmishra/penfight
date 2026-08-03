@@ -6,6 +6,8 @@ import { EV, valid } from "./protocol.js";
 import { genCode } from "./code.js";
 import { insertRoom, fetchRoom, setRoomStatus, openChannel } from "./net.js";
 import { genLayout } from "./game.js";
+import { modeById, decideWinner, teamOfSeat } from "./modes.js";
+import { tableById } from "./tables.js";
 
 const TURN_SECONDS = 20;
 const SETTLE_GRACE_MS = 12000;   // striker crashed mid-sim
@@ -40,12 +42,37 @@ async function connect(code, me, amCreator) {
     seq: 0,
     players: [],              // [{id, name, penId, seat, ready, connected, alive}]
     status: "lobby",
+    modeId: me.modeId || "classic",
+    tableId: me.tableId || "classroom",
     match: null,
     on(ev, cb) { (listeners[ev] = listeners[ev] || []).push(cb); },
     get isHost() { return s.hostId === s.playerId; },
-    get roster() { return s.players; }
+    get roster() { return s.players; },
+    get mode() { return modeById(s.modeId); }
   };
   const emit = (ev, data) => { for (const cb of listeners[ev] || []) cb(data); };
+
+  function teamOf(p) { return s.mode.teams ? teamOfSeat(p.seat) : undefined; }
+
+  function rosterEntries() {
+    return s.players.map(p => ({
+      id: p.id, alive: Boolean(p.alive), connected: p.connected !== false, team: teamOf(p)
+    }));
+  }
+
+  let lastFallenId = null;
+  const pendingSkips = new Set();
+
+  function roomVerdict({ requireConnected = false } = {}) {
+    return decideWinner(rosterEntries(), s.mode, { lastFallen: lastFallenId, requireConnected });
+  }
+
+  function announceGameOver(v) {
+    const winnerId = v.winnerId || (s.players[0] && s.players[0].id);
+    if (!winnerId) return;
+    send(EV.GAME_OVER, { winnerId, winnerTeam: v.winnerTeam ?? null });
+    onGameOver(winnerId, v.winnerTeam ?? null);
+  }
 
   const channel = await openChannel(code, me.playerId);
   const graceTimers = new Map();
@@ -108,10 +135,9 @@ async function connect(code, me, amCreator) {
     if (s.isHost) {
       broadcastRoster();
       if (s.status === "playing") {
-        const connectedAlive = s.players.filter(q => q.connected && q.alive);
-        if (connectedAlive.length === 1) {
-          send(EV.GAME_OVER, { winnerId: connectedAlive[0].id });
-          onGameOver(connectedAlive[0].id);
+        const v = roomVerdict({ requireConnected: true });
+        if (v.over) {
+          announceGameOver(v);
         } else if (lastTurn.playerId === id) {
           hostNextTurn();   // it was their turn, move on
         }
@@ -172,8 +198,13 @@ async function connect(code, me, amCreator) {
       case EV.START:
         if (from !== s.hostId) return;
         s.status = "playing";
+        if (payload.mode) s.modeId = payload.mode;
+        if (payload.tableId) s.tableId = payload.tableId;
         rematchVotes = new Set();
-        emit("start", { order: payload.order, layout: payload.layout });
+        lastFallenId = null;
+        pendingSkips.clear();
+        for (const p of s.players) p.alive = true;
+        emit("start", payload);
         break;
       case EV.TURN_START:
         if (from !== s.hostId || payload.turnIdx <= lastTurn.turnIdx) return;
@@ -193,24 +224,17 @@ async function connect(code, me, amCreator) {
       case EV.SETTLE: {
         if (from !== lastTurn.playerId) return;
         clearTimeout(settleWatch);
-        for (const id of payload.fallen) {
-          const p = findP(id);
-          if (p) p.alive = false;
-        }
+        applySettleToRoster(payload.fallen, payload.skipped || []);
         emit("settle", payload);
         if (s.isHost) {
-          const aliveLeft = s.players.filter(p => p.alive);
-          if (aliveLeft.length <= 1) {
-            const winner = aliveLeft[0] || findP(payload.fallen[payload.fallen.length - 1]);
-            if (winner) { send(EV.GAME_OVER, { winnerId: winner.id }); onGameOver(winner.id); }
-          } else {
-            setTimeout(hostNextTurn, 900);
-          }
+          const v = roomVerdict();
+          if (v.over) announceGameOver(v);
+          else setTimeout(hostNextTurn, 900);
         }
         break;
       }
       case EV.GAME_OVER:
-        onGameOver(payload.winnerId);
+        onGameOver(payload.winnerId, payload.winnerTeam ?? null);
         break;
       case EV.REMATCH:
         rematchVotes.add(from);
@@ -231,13 +255,22 @@ async function connect(code, me, amCreator) {
     channel.on("broadcast", { event: ev }, ({ payload }) => handle(ev, payload));
   }
 
-  function onGameOver(winnerId) {
+  function onGameOver(winnerId, winnerTeam = null) {
     if (s.status !== "playing") return;
     s.status = "done";
     clearTimeout(turnTimer);
     clearTimeout(settleWatch);
     if (s.isHost) setRoomStatus(code, "done").catch(() => {});
-    emit("over", { winnerId, winner: findP(winnerId) });
+    emit("over", { winnerId, winnerTeam, winner: findP(winnerId) });
+  }
+
+  // Shared bookkeeping for a turn's outcome, host and striker paths alike.
+  function applySettleToRoster(fallen, skipped) {
+    for (const id of fallen) {
+      const p = findP(id);
+      if (p && p.alive) { p.alive = false; lastFallenId = id; }
+    }
+    for (const id of skipped) pendingSkips.add(id);
   }
 
   // ---- host turn clock ----
@@ -253,19 +286,18 @@ async function connect(code, me, amCreator) {
 
   function hostNextTurn() {
     if (!s.isHost || s.status !== "playing") return;
-    const alive = s.players.filter(p => p.alive);
-    if (alive.length <= 1) {
-      if (alive[0]) { send(EV.GAME_OVER, { winnerId: alive[0].id }); onGameOver(alive[0].id); }
-      return;
-    }
-    const eligible = alive.filter(p => p.connected);
+    const v = roomVerdict();
+    if (v.over) { announceGameOver(v); return; }
+    const eligible = s.players.filter(p => p.alive && p.connected);
     if (!eligible.length) return;
     const seats = s.players.filter(p => p.alive).sort((a, b) => a.seat - b.seat);
     const curIdx = seats.findIndex(p => p.id === lastTurn.playerId);
     let next = null;
-    for (let k = 1; k <= seats.length; k++) {
+    for (let k = 1; k <= seats.length * 2; k++) {
       const cand = seats[(curIdx + k) % seats.length];
-      if (cand.connected) { next = cand; break; }
+      if (!cand.connected) continue;
+      if (pendingSkips.has(cand.id)) { pendingSkips.delete(cand.id); continue; }  // mounted: misses this one
+      next = cand; break;
     }
     if (!next) next = eligible[0];
     const payload = {
@@ -309,16 +341,23 @@ async function connect(code, me, amCreator) {
 
   function startGame() {
     if (!s.isHost || s.players.length < 2) return;
+    if (s.mode.teams && s.players.length < 4) return;   // 2v2 minimum
     const order = s.players.map(p => p.id);
     shuffle(order);
-    const layout = genLayout(s.players.map(p => ({ id: p.id, penId: p.penId })));
+    const layout = genLayout(
+      s.players.map(p => ({ id: p.id, penId: p.penId })),
+      tableById(s.tableId)
+    );
     s.status = "playing";
     rematchVotes = new Set();
     for (const p of s.players) p.alive = true;
+    lastFallenId = null;
+    pendingSkips.clear();
     lastTurn = { turnIdx: -1, playerId: null };
     setRoomStatus(code, "playing").catch(() => {});
-    send(EV.START, { order, layout });
-    emit("start", { order, layout });
+    const payload = { order, layout, mode: s.modeId, tableId: s.tableId };
+    send(EV.START, payload);
+    emit("start", payload);
     setTimeout(hostNextTurn, 1200);
   }
   s.startGame = startGame;
@@ -327,24 +366,19 @@ async function connect(code, me, amCreator) {
     send(EV.FLICK, { turnIdx, ...params, preStates });
   };
   s.sendSettle = result => {
-    for (const id of result.fallen) { const p = findP(id); if (p) p.alive = false; }
+    applySettleToRoster(result.fallen, result.skipped || []);
     send(EV.SETTLE, {
       turnIdx: result.turnIdx,
       finalStates: result.finalStates,
-      fallen: result.fallen
+      fallen: result.fallen,
+      skipped: result.skipped || []
     });
+    const v = roomVerdict();
     if (s.isHost) {
-      const aliveLeft = s.players.filter(p => p.alive);
-      if (aliveLeft.length <= 1) {
-        const winner = aliveLeft[0] || findP(result.fallen[result.fallen.length - 1]);
-        if (winner) { send(EV.GAME_OVER, { winnerId: winner.id }); onGameOver(winner.id); }
-      } else {
-        setTimeout(hostNextTurn, 900);
-      }
-    } else if (result.aliveCount <= 1) {
-      const aliveLeft = s.players.filter(p => p.alive);
-      const winner = aliveLeft[0] || findP(result.fallen[result.fallen.length - 1]);
-      if (winner) { send(EV.GAME_OVER, { winnerId: winner.id }); onGameOver(winner.id); }
+      if (v.over) announceGameOver(v);
+      else setTimeout(hostNextTurn, 900);
+    } else if (v.over) {
+      announceGameOver(v);
     }
   };
   s.sendEmoji = emoji => send(EV.EMOJI, { emoji });

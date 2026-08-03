@@ -3,7 +3,7 @@
 // exponential smoothing, which both smooths fixed-step motion and softens
 // authoritative snap corrections in online play.
 
-import { TABLE, HALF } from "./physics.js";
+import { tableById, tableHalf } from "./tables.js";
 
 const MARGIN = 0.7;           // world units of floor visible around the table
 const SMOOTH_TAU = 0.045;     // seconds, render chase time constant
@@ -13,6 +13,8 @@ export function createRenderer(canvas) {
   const ctx = canvas.getContext("2d");
   let dpr = 1, cw = 0, ch = 0, scale = 1, ox = 0, oy = 0;
   let deskCache = null;
+  let table = tableById("classroom");
+  let holes = [];
   const drawn = new Map();     // uid -> {x, y, angle, tau}
   const falls = [];            // active fall animations
   let shakeMag = 0;
@@ -41,10 +43,34 @@ export function createRenderer(canvas) {
     ch = Math.round(vh * dpr);
     canvas.width = cw;
     canvas.height = ch;
-    scale = Math.min(cw / (TABLE.w + MARGIN * 2), ch / (TABLE.h + MARGIN * 2));
+    fitView();
+    deskCache = null;
+  }
+
+  function fitView() {
+    const half = tableHalf(table);
+    scale = Math.min(cw / (half.x * 2 + MARGIN * 2), ch / (half.y * 2 + MARGIN * 2));
     ox = cw / 2;
     oy = ch / 2;
+  }
+
+  function setTable(t, opts = {}) {
+    table = t;
+    holes = opts.holes || [];
+    fitView();
     deskCache = null;
+  }
+
+  function deskPath(g, inset = 0) {
+    const half = tableHalf(table);
+    if (table.shape === "round") {
+      g.beginPath();
+      g.arc(ox, oy, half.x * scale - inset, 0, Math.PI * 2);
+      g.closePath();
+    } else {
+      rr(g, ox - half.x * scale + inset, oy - half.y * scale + inset,
+        half.x * 2 * scale - inset * 2, half.y * 2 * scale - inset * 2, 8 * dpr);
+    }
   }
 
   function buildDesk() {
@@ -52,73 +78,146 @@ export function createRenderer(canvas) {
     deskCache.width = cw;
     deskCache.height = ch;
     const g = deskCache.getContext("2d");
+    const th = table.theme;
+    const half = tableHalf(table);
+    const x0 = ox - half.x * scale, y0 = oy - half.y * scale;
+    const tw = half.x * 2 * scale, tht = half.y * 2 * scale;
 
     // Floor
-    g.fillStyle = "#0a0d16";
+    g.fillStyle = th.floor;
     g.fillRect(0, 0, cw, ch);
 
-    const x0 = ox - HALF.x * scale, y0 = oy - HALF.y * scale;
-    const tw = TABLE.w * scale, th = TABLE.h * scale;
-
     // Drop shadow under the desk
-    g.fillStyle = "rgba(0,0,0,0.55)";
-    rr(g, x0 + 6 * (dpr / 2), y0 + 12 * (dpr / 2), tw, th, 10 * dpr);
-    g.fill();
-
-    // Desk top, warm wood
-    const wood = g.createLinearGradient(x0, y0, x0 + tw, y0 + th);
-    wood.addColorStop(0, "#8a5a34");
-    wood.addColorStop(0.5, "#9a6a3e");
-    wood.addColorStop(1, "#7e5230");
-    g.fillStyle = wood;
-    rr(g, x0, y0, tw, th, 8 * dpr);
-    g.fill();
-
-    // Planks and grain
     g.save();
-    g.beginPath();
-    rr(g, x0, y0, tw, th, 8 * dpr);
+    g.translate(6 * (dpr / 2), 12 * (dpr / 2));
+    g.fillStyle = "rgba(0,0,0,0.55)";
+    deskPath(g);
+    g.fill();
+    g.restore();
+
+    // Desk top
+    const grad = g.createLinearGradient(x0, y0, x0 + tw, y0 + tht);
+    grad.addColorStop(0, th.top[0]);
+    grad.addColorStop(0.5, th.top[1]);
+    grad.addColorStop(1, th.top[2]);
+    g.fillStyle = grad;
+    deskPath(g);
+    g.fill();
+
+    g.save();
+    deskPath(g);
     g.clip();
-    const planks = 5;
-    for (let i = 1; i < planks; i++) {
-      const px = x0 + (tw * i) / planks;
-      g.strokeStyle = "rgba(40,22,8,0.35)";
-      g.lineWidth = 1.5 * dpr;
-      g.beginPath(); g.moveTo(px, y0); g.lineTo(px, y0 + th); g.stroke();
-    }
+
     let seed = 7;
     const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    for (let i = 0; i < 90; i++) {
-      const gx = x0 + rand() * tw;
-      const gy = y0 + rand() * th;
-      const len = (20 + rand() * 120) * dpr;
-      g.strokeStyle = `rgba(${rand() > 0.5 ? "60,34,12" : "180,130,80"},${0.05 + rand() * 0.1})`;
-      g.lineWidth = (0.5 + rand()) * dpr;
-      g.beginPath();
-      g.moveTo(gx, gy);
-      g.quadraticCurveTo(gx + 4 * dpr, gy + len / 2, gx + rand() * 6 * dpr - 3 * dpr, gy + len);
-      g.stroke();
+
+    if (th.planks > 1) {
+      for (let i = 1; i < th.planks; i++) {
+        const px = x0 + (tw * i) / th.planks;
+        g.strokeStyle = "rgba(40,22,8,0.35)";
+        g.lineWidth = 1.5 * dpr;
+        g.beginPath(); g.moveTo(px, y0); g.lineTo(px, y0 + tht); g.stroke();
+      }
     }
-    // Faint scratches, this desk has seen exams
-    for (let i = 0; i < 12; i++) {
-      const sx = x0 + rand() * tw, sy = y0 + rand() * th;
-      g.strokeStyle = "rgba(255,240,220,0.06)";
-      g.lineWidth = 0.8 * dpr;
-      g.beginPath();
-      g.moveTo(sx, sy);
-      g.lineTo(sx + (rand() - 0.5) * 60 * dpr, sy + (rand() - 0.5) * 60 * dpr);
-      g.stroke();
+    if (table.seam) {
+      g.strokeStyle = "rgba(20,10,2,0.55)";
+      g.lineWidth = 3 * dpr;
+      g.beginPath(); g.moveTo(ox, y0); g.lineTo(ox, y0 + tht); g.stroke();
     }
+    if (th.grain) {
+      for (let i = 0; i < 90; i++) {
+        const gx = x0 + rand() * tw;
+        const gy = y0 + rand() * tht;
+        const len = (20 + rand() * 120) * dpr;
+        g.strokeStyle = `rgba(${rand() > 0.5 ? "60,34,12" : "180,130,80"},${0.05 + rand() * 0.1})`;
+        g.lineWidth = (0.5 + rand()) * dpr;
+        g.beginPath();
+        g.moveTo(gx, gy);
+        g.quadraticCurveTo(gx + 4 * dpr, gy + len / 2, gx + rand() * 6 * dpr - 3 * dpr, gy + len);
+        g.stroke();
+      }
+    }
+    if (th.steel) {
+      // Brushed circular sheen
+      for (let i = 0; i < 26; i++) {
+        g.strokeStyle = `rgba(255,255,255,${0.02 + rand() * 0.05})`;
+        g.lineWidth = (0.6 + rand() * 1.2) * dpr;
+        g.beginPath();
+        g.arc(ox, oy, rand() * half.x * scale, rand() * Math.PI * 2, rand() * Math.PI * 2 + 1.2);
+        g.stroke();
+      }
+    }
+    if (th.glass) {
+      const sheen = g.createLinearGradient(x0, y0, x0 + tw * 0.7, y0 + tht);
+      sheen.addColorStop(0, "rgba(255,255,255,0.14)");
+      sheen.addColorStop(0.35, "rgba(255,255,255,0.02)");
+      sheen.addColorStop(1, "rgba(255,255,255,0.09)");
+      g.fillStyle = sheen;
+      g.fillRect(x0, y0, tw, tht);
+    }
+    if (th.paper) {
+      // A forgotten question paper under the fight
+      g.save();
+      g.translate(ox + tw * 0.16, oy - tht * 0.22);
+      g.rotate(0.16);
+      g.fillStyle = "rgba(240,236,220,0.9)";
+      g.fillRect(-42 * dpr, -56 * dpr, 84 * dpr, 112 * dpr);
+      g.strokeStyle = "rgba(90,90,110,0.5)";
+      g.lineWidth = 1 * dpr;
+      for (let i = 0; i < 9; i++) {
+        g.beginPath();
+        g.moveTo(-34 * dpr, -40 * dpr + i * 11 * dpr);
+        g.lineTo(34 * dpr, -40 * dpr + i * 11 * dpr);
+        g.stroke();
+      }
+      g.restore();
+    }
+    if (th.graffiti) {
+      g.save();
+      g.font = `${11 * dpr}px "Space Grotesk", sans-serif`;
+      g.fillStyle = "rgba(30,14,4,0.5)";
+      g.rotate(-0.06);
+      g.fillText("AB + ?", x0 + tw * 0.18, y0 + tht * 0.3);
+      g.fillText("2029 batch zindabad", x0 + tw * 0.08, y0 + tht * 0.82);
+      g.restore();
+    }
+    if (th.scratches) {
+      for (let i = 0; i < 12; i++) {
+        const sx = x0 + rand() * tw, sy = y0 + rand() * tht;
+        g.strokeStyle = "rgba(255,240,220,0.06)";
+        g.lineWidth = 0.8 * dpr;
+        g.beginPath();
+        g.moveTo(sx, sy);
+        g.lineTo(sx + (rand() - 0.5) * 60 * dpr, sy + (rand() - 0.5) * 60 * dpr);
+        g.stroke();
+      }
+    }
+
+    // Inkwell holes (Compass Box mode)
+    for (const h of holes) {
+      const c = view.toScreen(h.x, h.y);
+      const rp = h.r * scale;
+      const hg = g.createRadialGradient(c.x, c.y, rp * 0.1, c.x, c.y, rp);
+      hg.addColorStop(0, "#05060a");
+      hg.addColorStop(0.75, "#0b0e18");
+      hg.addColorStop(1, "#1c1206");
+      g.fillStyle = hg;
+      g.beginPath(); g.arc(c.x, c.y, rp, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = "rgba(255,220,170,0.25)";
+      g.lineWidth = 1.5 * dpr;
+      g.beginPath(); g.arc(c.x, c.y, rp, 0, Math.PI * 2); g.stroke();
+    }
+
     g.restore();
 
     // Edge bevel
-    g.strokeStyle = "rgba(30,16,4,0.8)";
+    g.strokeStyle = th.edge;
     g.lineWidth = 3 * dpr;
-    rr(g, x0, y0, tw, th, 8 * dpr);
+    deskPath(g);
     g.stroke();
     g.strokeStyle = "rgba(255,220,170,0.18)";
     g.lineWidth = 1 * dpr;
-    rr(g, x0 + 2 * dpr, y0 + 2 * dpr, tw - 4 * dpr, th - 4 * dpr, 6 * dpr);
+    deskPath(g, 2 * dpr);
     g.stroke();
   }
 
@@ -332,7 +431,7 @@ export function createRenderer(canvas) {
   resize();
 
   return {
-    view, resize, draw, addFall, softenNextFrames, drawPenSprite: drawPen,
+    view, resize, draw, addFall, softenNextFrames, setTable, drawPenSprite: drawPen,
     shake(mag) { shakeMag = Math.min(16, shakeMag + mag); },
     setPreview(p) { preview = p; },
     setHighlight(uid, color) { highlightUid = uid; if (color) highlightColor = color; }

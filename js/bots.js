@@ -1,10 +1,11 @@
 // Bot opponents for practice mode. They aim at a scored target with gaussian
-// noise, pick an impulse that carries them roughly to the target, and add a
-// little contact offset so their shots have natural spin.
+// noise, pick an impulse that carries them roughly to the target and through
+// it toward the edge, and add a little contact offset for natural spin.
 
-import { HALF, PHYS } from "./physics.js";
+import { PHYS } from "./physics.js";
 import { penById } from "./pens.js";
 import { J_MAX } from "./flick.js";
+import { rayToEdge } from "./tables.js";
 
 const BOT_NAMES = ["Bunty", "Chintu", "Pinky", "Golu", "Mona"];
 
@@ -36,24 +37,27 @@ function takeTurn(match, bot) {
   if (match.state.phase !== "aiming" || match.state.currentId !== bot.id) return;
   const me = match.sim.getBody(bot.id);
   if (!me) { match.advanceTurn(); return; }
+  const table = match.sim.table;
   const myPos = me.getPosition();
   const myPen = penById(bot.penId);
 
   let best = null;
   match.sim.eachPen((uid, data, x, y) => {
     if (uid === bot.id) return;
+    if (bot.team != null && data.ownerId && match.byId.get(data.ownerId)
+      && match.byId.get(data.ownerId).team === bot.team) return;   // teammate
     const dx = x - myPos.x, dy = y - myPos.y;
     const dist = Math.hypot(dx, dy) || 0.001;
     const dirX = dx / dist, dirY = dy / dist;
     // How close is the target to falling if pushed along this line?
-    const exitDist = distToEdge(x, y, dirX, dirY);
+    const exitDist = rayToEdge(table, x, y, dirX, dirY);
     const edgeBonus = Math.max(0, 1.6 - exitDist) * 0.9;
     // Would this shot carry me off too? Stopping distance at full send.
-    const a = PHYS.fricDecel * myPen.linDampMult;
+    const a = PHYS.fricDecel * myPen.linDampMult * (table.frictionMult || 1);
     const vMax = J_MAX / myPen.mass;
     const stopDist = (vMax * vMax) / (2 * a);
-    const myExit = distToEdge(myPos.x, myPos.y, dirX, dirY);
-    const selfRisk = stopDist > myExit ? bot.caution * Math.min(1, dist / myExit) : 0;
+    const myExit = rayToEdge(table, myPos.x, myPos.y, dirX, dirY);
+    const selfRisk = stopDist > myExit ? bot.caution * Math.min(1, dist / Math.max(0.001, myExit)) : 0;
     const score = 1.5 / dist + edgeBonus - selfRisk;
     if (!best || score > best.score) best = { score, x, y, dist, dirX, dirY };
   });
@@ -67,8 +71,8 @@ function takeTurn(match, bot) {
 
   // Impulse: enough to reach the target and carry it toward the edge.
   // Aiming through the target, not just at it, is what ends duels.
-  const a = PHYS.fricDecel * myPen.linDampMult;
-  const carry = Math.min(3.5, distToEdge(best.x, best.y, dx, dy) * 0.8 + 0.5);
+  const a = PHYS.fricDecel * myPen.linDampMult * (table.frictionMult || 1);
+  const carry = Math.min(3.5, rayToEdge(table, best.x, best.y, dx, dy) * 0.8 + 0.5);
   const vNeed = Math.sqrt(2 * a * (best.dist + carry)) * (1.15 + Math.random() * 0.25);
   const J = Math.min(J_MAX, Math.max(J_MAX * 0.2, vNeed * myPen.mass));
 
@@ -76,16 +80,6 @@ function takeTurn(match, bot) {
     dx, dy, J,
     off: gauss() * 0.18
   });
-}
-
-function distToEdge(x, y, dx, dy) {
-  // Distance along (dx, dy) from (x, y) to the table boundary.
-  let best = Infinity;
-  if (dx > 1e-6) best = Math.min(best, (HALF.x - x) / dx);
-  if (dx < -1e-6) best = Math.min(best, (-HALF.x - x) / dx);
-  if (dy > 1e-6) best = Math.min(best, (HALF.y - y) / dy);
-  if (dy < -1e-6) best = Math.min(best, (-HALF.y - y) / dy);
-  return Math.max(0, best);
 }
 
 function gauss() {

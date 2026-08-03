@@ -10,6 +10,7 @@ import * as sfx from "./sfx.js";
 import * as ui from "./screens.js";
 import { onlineConfigured } from "./net.js";
 import { canonicalize, isValidCode } from "./code.js";
+import { modeById, teamOfSeat, TEAM_NAMES } from "./modes.js";
 
 const $ = id => document.getElementById(id);
 
@@ -135,7 +136,8 @@ function startPractice() {
   const bots = botRoster(store.bots, store.pen, PENS);
   const players = [me, ...bots];
   players.forEach((p, i) => { p.seat = i; });
-  match = createMatch({ players, autoAdvance: true });
+  match = createMatch({ players, autoAdvance: true, mode: "classic" });
+  renderer.setTable(match.table, { holes: match.holes });
   wireMatch(match, players);
   botsCtl = attachBots(match);
   match.on("over", ({ winner }) => {
@@ -196,18 +198,27 @@ async function startOnline(kind, code) {
   });
   session.on("settle", p => {
     if (!match || p.from === myId) return;
-    match.forceSettle(p.finalStates, p.fallen);
+    match.forceSettle(p.finalStates, p.fallen, p.skipped || []);
     renderer.softenNextFrames();
     refreshChips(match, match.players);
   });
-  session.on("over", ({ winnerId, winner }) => {
+  session.on("over", ({ winnerId, winnerTeam, winner }) => {
     turnDeadline = null;
     ui.setTimer(null);
     renderer.setHighlight(null);
     flick.disarm();
     setTimeout(() => {
       const pen = winner ? penById(winner.penId) : null;
-      if (winnerId === myId) {
+      const mode = modeById(session.modeId);
+      if (mode.teams && winnerTeam != null) {
+        const myTeam = teamOfSeat((session.roster.find(p => p.id === myId) || {}).seat || 0);
+        if (winnerTeam === myTeam) {
+          sfx.win();
+          ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins!`, "Your bench owns the desk.", "🏆");
+        } else {
+          ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins`, "Their bench cleared yours out.", "🥲");
+        }
+      } else if (winnerId === myId) {
         sfx.win();
         ui.showVictory("You win!", pen ? `Your ${pen.name} owns the desk.` : "", "🏆");
       } else {
@@ -221,8 +232,16 @@ async function startOnline(kind, code) {
 }
 
 function beginOnlineMatch(order, layout) {
-  const players = session.roster.map(p => ({ ...p, isBot: false }));
-  match = createMatch({ players, autoAdvance: false });
+  const mode = modeById(session.modeId);
+  const players = session.roster.map(p => ({
+    ...p, isBot: false,
+    team: mode.teams ? teamOfSeat(p.seat) : undefined
+  }));
+  match = createMatch({
+    players, autoAdvance: false,
+    mode: session.modeId, tableId: session.tableId
+  });
+  renderer.setTable(match.table, { holes: match.holes });
   wireMatch(match, players);
 
   match.on("settle", r => {
@@ -376,3 +395,10 @@ if (joinParam && onlineConfigured) {
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
+
+// Debug handle for automated testing. Not referenced by game code.
+window.__pf = {
+  get match() { return match; },
+  get session() { return session; },
+  renderer, flick, store
+};

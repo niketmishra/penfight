@@ -38,7 +38,8 @@ export function createFlick(canvas, view) {
     if (!armed) return;
     const w = view.toWorld(e.clientX, e.clientY);
     const { cx, cy, hl } = penAxis();
-    if (Math.hypot(w.x - cx, w.y - cy) > hl + ARM_EXTRA) return;  // palm or stray touch
+    const reach = (hl + ARM_EXTRA) * (armed.pen.armMult || 1);   // Lambu strikes from further
+    if (Math.hypot(w.x - cx, w.y - cy) > reach) return;  // palm or stray touch
     candidates.set(e.pointerId, { samples: [{ x: w.x, y: w.y, t: performance.now() }] });
     e.preventDefault();
   }

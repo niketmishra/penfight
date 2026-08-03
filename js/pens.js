@@ -12,6 +12,8 @@
 export const PENS = [
   {
     id: "ronalds045",
+    quirk: { name: "Sarkari Pen", text: "Nothing special about it. That is the special thing. +5% everything." },
+    flickMult: 1.05,
     name: "Ronalds 045",
     inspo: "the one in every pencil box",
     trait: "Everyone's first pen. Light, honest, replaceable.",
@@ -22,6 +24,8 @@ export const PENS = [
   },
   {
     id: "trimaxx",
+    quirk: { name: "Haathi", text: "Too heavy to flip. Cannot be launched airborne or mounted." },
+    airborneImmune: true,
     name: "TriMaxx",
     inspo: "the chunky rollerball legend",
     trait: "The pen fight legend. Hard to launch, plows through crowds.",
@@ -32,6 +36,8 @@ export const PENS = [
   },
   {
     id: "butterglide",
+    quirk: { name: "Makkhan", text: "Ink slicks and sticky patches mean nothing to it." },
+    zoneImmune: true,
     name: "Jello Butterglide",
     inspo: "smooth like butter",
     trait: "Slippery. Slides far on the same flick, drifts past the edge if you overcook it.",
@@ -42,6 +48,8 @@ export const PENS = [
   },
   {
     id: "pentronic",
+    quirk: { name: "Patla Sa", text: "So slim it barely takes the hit. Incoming shoves lose 12%." },
+    massMult: 1.12, flickMult: 1.12,
     name: "Zinc Pentronic",
     inspo: "the sleek slim one",
     trait: "Slim and slight. A smaller target, but light enough to get launched.",
@@ -52,6 +60,8 @@ export const PENS = [
   },
   {
     id: "writeometer",
+    quirk: { name: "Lambu", text: "That reach. Flick it from one and a half arms away." },
+    armMult: 1.5,
     name: "Glare Write-o-Meter",
     inspo: "counts every metre it writes",
     trait: "Longest pen on the table. Huge reach, wild spin on tip flicks, big target.",
@@ -62,6 +72,8 @@ export const PENS = [
   },
   {
     id: "copilotv6",
+    quirk: { name: "Googly", text: "Spin it and it bends double. The trick shot pen." },
+    magnusMult: 2,
     name: "Copilot V6",
     inspo: "the smooth gel flyer",
     trait: "Barely any spin drag. Set it spinning and it stays live.",
@@ -72,6 +84,8 @@ export const PENS = [
   },
   {
     id: "sparkervictor",
+    quirk: { name: "Loha", text: "Solid metal. Its hits send lighter pens flying, literally." },
+    launcher: true,
     name: "Sparker Victor",
     inspo: "the metal one from an uncle",
     trait: "Solid metal. Heaviest pen here, loudest clack, needs a real flick.",
@@ -82,6 +96,8 @@ export const PENS = [
   },
   {
     id: "notraj621",
+    quirk: { name: "Jugaadu", text: "Survives the chalk line one extra round. Last bench genes." },
+    stormGrace: 1,
     name: "Notraj 621 HB",
     inspo: "the pencil that ruled the last bench",
     trait: "Hexagonal. Does not roll, stops dead, and it is the longest thing on the table.",

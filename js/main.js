@@ -11,6 +11,7 @@ import * as ui from "./screens.js";
 import { onlineConfigured } from "./net.js";
 import { canonicalize, isValidCode } from "./code.js";
 import { modeById, teamOfSeat, TEAM_NAMES } from "./modes.js";
+import { commentate } from "./commentary.js";
 
 const $ = id => document.getElementById(id);
 
@@ -62,15 +63,27 @@ flick.fire = (params, armed) => {
 
 // ---------- render loop ----------
 
+let timeScale = 1;            // kill cam dips this to 0.3
+let slowMoTimer = null;
+
+function enterSlowMo(ms) {
+  timeScale = 0.3;
+  clearTimeout(slowMoTimer);
+  slowMoTimer = setTimeout(() => {
+    timeScale = 1;
+    renderer.camHome();
+  }, ms);
+}
+
 let lastT = performance.now();
 function loop(tNow) {
   const dt = Math.min(0.1, (tNow - lastT) / 1000);
   lastT = tNow;
   if (match) {
-    match.update(dt);
-    renderer.draw(match.sim, dt, tNow);
+    match.update(dt * timeScale);
+    renderer.draw(match.sim, dt, tNow, timeScale);
   } else {
-    renderer.draw(EMPTY_SIM, dt, tNow);
+    renderer.draw(EMPTY_SIM, dt, tNow, 1);
   }
   if (turnDeadline != null) {
     const left = (turnDeadline - Date.now()) / 1000;
@@ -79,34 +92,76 @@ function loop(tNow) {
   }
   requestAnimationFrame(loop);
 }
-const EMPTY_SIM = { eachPen() {} };
+const EMPTY_SIM = { eachPen() {}, table: null };
 requestAnimationFrame(loop);
 
 // ---------- match wiring (both modes) ----------
 
+function matName(penId) {
+  const shape = penById(penId).render.shape;
+  return shape === "metal" ? "metal" : shape === "pencil" ? "wood" : "plastic";
+}
+
 function wireMatch(m, players) {
+  let killCamTurn = -1;
+  let lastTeeterAt = 0;
+
   m.on("hit", ev => {
-    const mass = 1.2;
-    sfx.clack(ev.impulse, mass);
+    const loud = ev.a.speed > ev.b.speed ? ev.a : ev.b;
+    const mat = ev.a.penId && matName(ev.a.penId) === "metal" ? "metal"
+      : ev.b.penId && matName(ev.b.penId) === "metal" ? "metal"
+      : ev.a.penId && matName(ev.a.penId) === "wood" ? "wood"
+      : ev.b.penId && matName(ev.b.penId) === "wood" ? "wood" : "plastic";
+    sfx.clack(ev.impulse, mat);
     renderer.shake(Math.min(10, ev.impulse * 1.6));
+    renderer.fx.burst(ev.x, ev.y, ev.impulse, ev.impulse > 3 ? "spark" : "dust");
     sfx.vibrate(Math.min(60, Math.round(ev.impulse * 10)));
+    if (ev.impulse > 4.2 && loud.speed > 8) ui.comment(commentate("bigHit"));
   });
+
   m.on("flick", ({ playerId }) => {
     if (playerId !== myId) sfx.whoosh(0.7);
     renderer.setHighlight(null);
     flick.disarm();
   });
+
   m.on("fall", ev => {
     renderer.addFall(ev, penById(ev.penId));
     sfx.fall();
     sfx.vibrate(80);
-    const who = ev.player ? ev.player.name : "A pen";
-    const pen = penById(ev.penId);
-    ui.toast(`${who === myName() ? "Your" : who + "'s"} ${pen.name} fell off!`, ev.ownerId === myId);
+    renderer.fx.inkSplat(ev.x, ev.y, 2.2);
+
+    // Kill cam: once per turn, only while the sim is actually running.
+    if (m.state.phase === "sim" && m.state.turnIdx !== killCamTurn) {
+      killCamTurn = m.state.turnIdx;
+      renderer.killCam(ev.x, ev.y);
+      sfx.whoomp();
+      enterSlowMo(700);
+    }
+
+    const who = ev.player ? ev.player.name : null;
+    if (who) {
+      const self = ev.ownerId === m.state.currentId;
+      const evName = ev.cause === "hole" ? "holeKill"
+        : self ? "selfKill"
+        : m.state.fallenThisTurn.length >= 2 ? "multiKill" : "kill";
+      ui.comment(commentate(evName, { name: who }));
+      ui.toast(`${who === myName() ? "Your" : who + "'s"} ${penById(ev.penId).name} ${ev.cause === "hole" ? "sank in the inkwell" : "fell off"}!`, ev.ownerId === myId);
+    }
     refreshChips(m, players);
   });
+
+  m.on("skipped", ({ player }) => {
+    if (player) {
+      ui.comment(commentate("skip", { name: player.name }));
+      ui.toast(`${player.name} is pinned, turn skipped`);
+    }
+  });
+
   m.on("turn", t => {
     refreshChips(m, players);
+    renderer.camHome();
+    timeScale = 1;
     const mine = t.playerId === myId;
     const p = m.byId.get(t.playerId);
     ui.setTurnBanner(mine ? "Your turn, flick!" : `${p ? p.name : "..."} is lining up`, mine);
@@ -118,6 +173,29 @@ function wireMatch(m, players) {
     } else {
       flick.disarm();
     }
+  });
+
+  renderer.teeterCb = ev => {
+    const nowT = Date.now();
+    if (nowT - lastTeeterAt < 3500) return;
+    lastTeeterAt = nowT;
+    sfx.oooh();
+    ui.comment(commentate("teeter", { name: ev.ownerId && m.byId.get(ev.ownerId) ? m.byId.get(ev.ownerId).name : "" }));
+  };
+
+  // Match intro ceremony
+  sfx.bell();
+  sfx.ambience(true);
+  renderer.introPulse();
+  ui.comment(commentate("start"));
+  m.on("over", ({ winnerId, winnerTeam }) => {
+    sfx.ambience(false);
+    renderer.camHome();
+    timeScale = 1;
+    const me = m.byId.get(myId);
+    const iWon = winnerId === myId || (winnerTeam != null && me && me.team === winnerTeam);
+    if (iWon) renderer.confettiBurst();
+    ui.comment(commentate("win"));
   });
 }
 

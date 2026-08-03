@@ -161,6 +161,19 @@ export function toast(text, hot = false) {
   setTimeout(() => el.remove(), 3100);
 }
 
+// Big commentator line: louder styling, shorter life, one at a time.
+let commEl = null;
+export function comment(text) {
+  if (!text) return;
+  if (commEl) commEl.remove();
+  const el = document.createElement("div");
+  el.className = "toast comm";
+  el.textContent = text;
+  $("toasts").appendChild(el);
+  commEl = el;
+  setTimeout(() => { el.remove(); if (commEl === el) commEl = null; }, 2400);
+}
+
 export function floatEmoji(emoji) {
   const el = document.createElement("div");
   el.className = "femoji";

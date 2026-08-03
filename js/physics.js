@@ -55,6 +55,7 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     const v = body.getLinearVelocity();
     const side = {
       uid: ud.uid ?? null,
+      penId: ud.penId ?? null,
       furniture: Boolean(ud.furniture),
       mass: ud.pen ? ud.pen.mass : Infinity,
       speed: Math.hypot(v.x, v.y),

@@ -355,6 +355,16 @@ input:focus { border-color: var(--accent); }
   white-space: nowrap;
 }
 .toast.hot { border-color: var(--hot); color: var(--hot); }
+.toast.comm {
+  font-family: var(--display);
+  font-size: 19px;
+  letter-spacing: 0.5px;
+  color: var(--accent-2);
+  border-color: var(--accent-2);
+  background: #10141ff5;
+  animation: comm-in 0.22s cubic-bezier(0.2, 1.6, 0.4, 1), toast-out 0.4s ease 2s forwards;
+}
+@keyframes comm-in { from { opacity: 0; transform: scale(0.6); } }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } }
 @keyframes toast-out { to { opacity: 0; transform: translateY(-8px); } }
 

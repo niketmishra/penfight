@@ -10,7 +10,7 @@ import { modeById, decideWinner, teamOfSeat } from "./modes.js";
 import { tableById } from "./tables.js";
 
 const TURN_SECONDS = 20;
-const SETTLE_GRACE_MS = 12000;   // striker crashed mid-sim
+const SETTLE_GRACE_MS = 15000;   // striker crashed mid-sim (covers one kill cam)
 const LEAVE_GRACE_MS = 10000;    // refresh window before a player counts as gone
 const MAX_PLAYERS = 6;
 

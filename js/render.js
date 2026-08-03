@@ -1,9 +1,10 @@
-// Canvas renderer. Top-down desk, vector pens, fall animations, aim ghost,
-// screen shake. Drawn transforms chase physics transforms with a short
-// exponential smoothing, which both smooths fixed-step motion and softens
-// authoritative snap corrections in online play.
+// Canvas renderer. Top-down desk, vector pens, camera with kill-cam zoom,
+// fall animations, teeter drama, particles, aim ghost, screen shake.
+// Drawn transforms chase physics transforms with a short exponential
+// smoothing, which smooths fixed-step motion and softens online snaps.
 
-import { tableById, tableHalf } from "./tables.js";
+import { tableById, tableHalf, edgeClearance } from "./tables.js";
+import { createFx } from "./fx.js";
 
 const MARGIN = 0.7;           // world units of floor visible around the table
 const SMOOTH_TAU = 0.045;     // seconds, render chase time constant
@@ -11,26 +12,42 @@ const SNAP_TAU = 0.12;        // slower chase right after a snapshot correction
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext("2d");
+  const fx = createFx();
   let dpr = 1, cw = 0, ch = 0, scale = 1, ox = 0, oy = 0;
   let deskCache = null;
   let table = tableById("classroom");
   let holes = [];
   const drawn = new Map();     // uid -> {x, y, angle, tau}
-  const falls = [];            // active fall animations
+  const falls = [];            // active fall animations, dt-driven
   let shakeMag = 0;
   let preview = null;
   let highlightUid = null;
   let highlightColor = "#ffd166";
+  let onTeeter = null;
+  const teetering = new Set();
+
+  // Camera: world point at screen center offset + zoom, both eased.
+  const cam = { cx: 0, cy: 0, zoom: 1, tx: 0, ty: 0, tzoom: 1, tau: 0.22 };
+  let eScale = 1;              // scale * cam.zoom, the size of one world unit
+  let flash = 0;               // kill-cam white flash
 
   const view = {
     toWorld(clientX, clientY) {
       const r = canvas.getBoundingClientRect();
       const px = (clientX - r.left) * (cw / r.width);
       const py = (clientY - r.top) * (ch / r.height);
-      return { x: (px - ox) / scale, y: (py - oy) / scale };
+      return {
+        x: (px - ox) / eScale + cam.cx,
+        y: (py - oy) / eScale + cam.cy
+      };
     },
-    toScreen(wx, wy) { return { x: ox + wx * scale, y: oy + wy * scale }; },
-    get pxPerUnit() { return scale; }
+    toScreen(wx, wy) {
+      return {
+        x: ox + (wx - cam.cx) * eScale,
+        y: oy + (wy - cam.cy) * eScale
+      };
+    },
+    get pxPerUnit() { return eScale; }
   };
 
   function resize() {
@@ -52,14 +69,45 @@ export function createRenderer(canvas) {
     scale = Math.min(cw / (half.x * 2 + MARGIN * 2), ch / (half.y * 2 + MARGIN * 2));
     ox = cw / 2;
     oy = ch / 2;
+    eScale = scale * cam.zoom;
   }
 
   function setTable(t, opts = {}) {
     table = t;
     holes = opts.holes || [];
+    camHome(true);
     fitView();
     deskCache = null;
   }
+
+  // ---------- camera api ----------
+
+  function camFollow(x, y, zoom = 1, tau = 0.22) {
+    // Clamp pan so the desk never drifts far off center.
+    const half = tableHalf(table);
+    cam.tx = Math.max(-half.x * 0.35, Math.min(half.x * 0.35, x * 0.5));
+    cam.ty = Math.max(-half.y * 0.35, Math.min(half.y * 0.35, y * 0.5));
+    cam.tzoom = zoom;
+    cam.tau = tau;
+  }
+
+  function killCam(x, y) {
+    camFollow(x * 1.4, y * 1.4, 1.35, 0.09);
+    flash = 0.55;
+  }
+
+  function camHome(instant = false) {
+    cam.tx = 0; cam.ty = 0; cam.tzoom = 1; cam.tau = 0.16;
+    if (instant) { cam.cx = 0; cam.cy = 0; cam.zoom = 1; eScale = scale; }
+  }
+
+  function introPulse() {
+    cam.zoom = 1.16;
+    cam.cx = 0; cam.cy = 0;
+    camHome();
+  }
+
+  // ---------- desk ----------
 
   function deskPath(g, inset = 0) {
     const half = tableHalf(table);
@@ -73,6 +121,10 @@ export function createRenderer(canvas) {
     }
   }
 
+  function baseToScreen(wx, wy) {
+    return { x: ox + wx * scale, y: oy + wy * scale };
+  }
+
   function buildDesk() {
     deskCache = document.createElement("canvas");
     deskCache.width = cw;
@@ -83,11 +135,9 @@ export function createRenderer(canvas) {
     const x0 = ox - half.x * scale, y0 = oy - half.y * scale;
     const tw = half.x * 2 * scale, tht = half.y * 2 * scale;
 
-    // Floor
     g.fillStyle = th.floor;
     g.fillRect(0, 0, cw, ch);
 
-    // Drop shadow under the desk
     g.save();
     g.translate(6 * (dpr / 2), 12 * (dpr / 2));
     g.fillStyle = "rgba(0,0,0,0.55)";
@@ -95,7 +145,6 @@ export function createRenderer(canvas) {
     g.fill();
     g.restore();
 
-    // Desk top
     const grad = g.createLinearGradient(x0, y0, x0 + tw, y0 + tht);
     grad.addColorStop(0, th.top[0]);
     grad.addColorStop(0.5, th.top[1]);
@@ -138,7 +187,6 @@ export function createRenderer(canvas) {
       }
     }
     if (th.steel) {
-      // Brushed circular sheen
       for (let i = 0; i < 26; i++) {
         g.strokeStyle = `rgba(255,255,255,${0.02 + rand() * 0.05})`;
         g.lineWidth = (0.6 + rand() * 1.2) * dpr;
@@ -156,7 +204,6 @@ export function createRenderer(canvas) {
       g.fillRect(x0, y0, tw, tht);
     }
     if (th.paper) {
-      // A forgotten question paper under the fight
       g.save();
       g.translate(ox + tw * 0.16, oy - tht * 0.22);
       g.rotate(0.16);
@@ -193,9 +240,8 @@ export function createRenderer(canvas) {
       }
     }
 
-    // Inkwell holes (Compass Box mode)
     for (const h of holes) {
-      const c = view.toScreen(h.x, h.y);
+      const c = baseToScreen(h.x, h.y);
       const rp = h.r * scale;
       const hg = g.createRadialGradient(c.x, c.y, rp * 0.1, c.x, c.y, rp);
       hg.addColorStop(0, "#05060a");
@@ -210,7 +256,6 @@ export function createRenderer(canvas) {
 
     g.restore();
 
-    // Edge bevel
     g.strokeStyle = th.edge;
     g.lineWidth = 3 * dpr;
     deskPath(g);
@@ -220,6 +265,8 @@ export function createRenderer(canvas) {
     deskPath(g, 2 * dpr);
     g.stroke();
   }
+
+  // ---------- per-frame ----------
 
   function chase(uid, x, y, angle, dt) {
     let d = drawn.get(uid);
@@ -231,52 +278,93 @@ export function createRenderer(canvas) {
     while (da > Math.PI) da -= 2 * Math.PI;
     while (da < -Math.PI) da += 2 * Math.PI;
     d.angle += da * k;
-    d.tau += (SMOOTH_TAU - d.tau) * k * 0.5;   // relax back to fast chase
+    d.tau += (SMOOTH_TAU - d.tau) * k * 0.5;
     return d;
   }
 
-  function draw(sim, dt, tNow) {
+  function draw(sim, dt, tNow, timeScale = 1) {
     if (!deskCache) buildDesk();
+
+    // Ease the camera (real time, not sim time)
+    const ck = 1 - Math.exp(-dt / cam.tau);
+    cam.cx += (cam.tx - cam.cx) * ck;
+    cam.cy += (cam.ty - cam.cy) * ck;
+    cam.zoom += (cam.tzoom - cam.zoom) * ck;
+    eScale = scale * cam.zoom;
+
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, cw, ch);
 
+    let shx = 0, shy = 0;
     if (shakeMag > 0.01) {
-      ctx.translate((Math.random() - 0.5) * shakeMag * dpr, (Math.random() - 0.5) * shakeMag * dpr);
+      shx = (Math.random() - 0.5) * shakeMag * dpr;
+      shy = (Math.random() - 0.5) * shakeMag * dpr;
       shakeMag *= Math.exp(-dt / 0.09);
     } else shakeMag = 0;
 
+    // Desk cache is base-space; draw it through the camera transform.
+    ctx.setTransform(
+      cam.zoom, 0, 0, cam.zoom,
+      ox * (1 - cam.zoom) - cam.cx * scale * cam.zoom + shx,
+      oy * (1 - cam.zoom) - cam.cy * scale * cam.zoom + shy
+    );
     ctx.drawImage(deskCache, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, shx, shy);
 
-    // Fall animations, under the live pens
+    // Fall animations, under the live pens (progress on scaled time)
     for (let i = falls.length - 1; i >= 0; i--) {
       const f = falls[i];
-      const t = (tNow - f.t0) / 600;
-      if (t >= 1) { falls.splice(i, 1); continue; }
-      const decay = Math.exp(-t * 2.2);
-      const x = f.x + f.vx * t * 0.4;
-      const y = f.y + f.vy * t * 0.4 + t * t * 0.55;   // slight gravity sell
+      f.t += (dt * timeScale) / 0.6;
+      if (f.t >= 1) { falls.splice(i, 1); continue; }
+      const t = f.t;
+      const x = f.x + f.vx * t * 0.24;
+      const y = f.y + f.vy * t * 0.24 + t * t * 0.55;
       const a = f.angle + f.w * t * 0.35;
       drawPen(f.pen, x, y, a, 1 - t * 0.5, 1 - t, false);
     }
 
-    // Live pens
+    // Live pens with teeter drama
     const seen = new Set();
-    sim.eachPen((uid, data, x, y, angle) => {
+    sim.eachPen((uid, data, x, y, angle, body) => {
       seen.add(uid);
       const d = chase(uid, x, y, angle, dt);
       const isHl = uid === highlightUid;
       if (isHl) drawHighlight(d.x, d.y, data.pen, tNow);
-      drawPen(data.pen, d.x, d.y, d.angle, 1, 1, true);
+
+      let wobble = 0;
+      const v = body.getLinearVelocity();
+      const still = Math.hypot(v.x, v.y) < 0.12 && Math.abs(body.getAngularVelocity()) < 0.3;
+      const clearance = edgeClearance(sim.table, x, y);
+      if (still && clearance < (data.pen.length / 2) * 0.5) {
+        if (!teetering.has(uid)) {
+          teetering.add(uid);
+          if (onTeeter) onTeeter({ uid, x, y, pen: data.pen, ownerId: data.ownerId });
+        }
+        wobble = Math.sin(tNow / 55) * 0.028 * (1 + Math.sin(tNow / 700) * 0.5);
+      } else if (!still || clearance > data.pen.length * 0.6) {
+        teetering.delete(uid);
+      }
+
+      drawPen(data.pen, d.x, d.y, d.angle + wobble, 1, 1, true);
     });
-    for (const uid of [...drawn.keys()]) if (!seen.has(uid)) drawn.delete(uid);
+    for (const uid of [...drawn.keys()]) if (!seen.has(uid)) { drawn.delete(uid); teetering.delete(uid); }
+
+    fx.update(dt * (timeScale < 1 ? timeScale : 1));
+    fx.draw(ctx, (wx, wy) => view.toScreen(wx, wy), eScale);
 
     if (preview) drawPreview(preview, tNow);
+
+    if (flash > 0.01) {
+      ctx.fillStyle = `rgba(255,244,214,${flash * 0.5})`;
+      ctx.fillRect(0, 0, cw, ch);
+      flash *= Math.exp(-dt / 0.1);
+    } else flash = 0;
   }
 
   function drawHighlight(x, y, pen, tNow) {
     const s = view.toScreen(x, y);
     const pulse = 1 + 0.06 * Math.sin(tNow / 220);
-    const r = (pen.length / 2 + 0.35) * scale * pulse;
+    const r = (pen.length / 2 + 0.35) * eScale * pulse;
     ctx.strokeStyle = highlightColor;
     ctx.globalAlpha = 0.5 + 0.25 * Math.sin(tNow / 220);
     ctx.lineWidth = 2.5 * dpr;
@@ -290,7 +378,7 @@ export function createRenderer(canvas) {
 
   function drawPreview(p, tNow) {
     const s = view.toScreen(p.x, p.y);
-    const len = (0.8 + p.power * 3.2) * scale;
+    const len = (0.8 + p.power * 3.2) * eScale;
     ctx.save();
     ctx.strokeStyle = "rgba(255,209,102,0.85)";
     ctx.lineWidth = 3 * dpr;
@@ -301,7 +389,6 @@ export function createRenderer(canvas) {
     ctx.lineTo(s.x + p.dx * len, s.y + p.dy * len);
     ctx.stroke();
     ctx.setLineDash([]);
-    // Arrowhead
     const ex = s.x + p.dx * len, ey = s.y + p.dy * len;
     const aa = Math.atan2(p.dy, p.dx);
     ctx.fillStyle = "rgba(255,209,102,0.85)";
@@ -310,35 +397,34 @@ export function createRenderer(canvas) {
     ctx.lineTo(ex - Math.cos(aa - 0.45) * 10 * dpr, ey - Math.sin(aa - 0.45) * 10 * dpr);
     ctx.lineTo(ex - Math.cos(aa + 0.45) * 10 * dpr, ey - Math.sin(aa + 0.45) * 10 * dpr);
     ctx.fill();
-    // Spin hint when hitting off center
     if (Math.abs(p.off) > 0.35) {
       ctx.strokeStyle = "rgba(255,209,102,0.6)";
       ctx.lineWidth = 2 * dpr;
       ctx.beginPath();
       const dir = p.off > 0 ? 1 : -1;
-      ctx.arc(s.x, s.y, 0.45 * scale, aa + dir * 0.6, aa + dir * 2.2, dir < 0);
+      ctx.arc(s.x, s.y, 0.45 * eScale, aa + dir * 0.6, aa + dir * 2.2, dir < 0);
       ctx.stroke();
     }
     ctx.restore();
   }
 
   // Vector pen, local long axis along +x, drawn at world (x, y, angle).
-  function drawPen(pen, x, y, angle, sizeK, alpha, shadow) {
+  function drawPen(pen, x, y, angle, sizeK, alpha, shadow, lift = 0) {
     const s = view.toScreen(x, y);
-    const L = pen.length * scale * sizeK;
-    const W = pen.dia * scale * sizeK * 1.35;   // slightly fat for readability
+    const L = pen.length * eScale * sizeK;
+    const W = pen.dia * eScale * sizeK * 1.35;
     const r = pen.render;
     ctx.save();
-    ctx.translate(s.x, s.y);
+    ctx.translate(s.x, s.y - lift * eScale);
     ctx.rotate(angle);
     ctx.globalAlpha = alpha;
 
     if (shadow) {
       ctx.save();
       ctx.rotate(-angle);
-      ctx.translate(0.055 * scale, 0.1 * scale);
+      ctx.translate((0.055 + lift * 0.7) * eScale, (0.1 + lift * 1.2) * eScale);
       ctx.rotate(angle);
-      ctx.fillStyle = "rgba(10,5,0,0.33)";
+      ctx.fillStyle = `rgba(10,5,0,${0.33 / (1 + lift * 2)})`;
       rr(ctx, -L / 2, -W / 2, L, W, W / 2);
       ctx.fill();
       ctx.restore();
@@ -346,7 +432,6 @@ export function createRenderer(canvas) {
 
     const hl = L / 2;
     if (r.shape === "pencil") {
-      // Hexagonal pencil: flat body, ferrule and eraser at back, wood cone tip.
       const bodyLen = L * 0.78;
       ctx.fillStyle = r.body;
       ctx.fillRect(-hl + L * 0.14, -W / 2, bodyLen, W);
@@ -354,13 +439,11 @@ export function createRenderer(canvas) {
       ctx.fillRect(-hl + L * 0.14, -W / 2, bodyLen, W * 0.22);
       ctx.fillStyle = "rgba(0,0,0,0.22)";
       ctx.fillRect(-hl + L * 0.14, W / 2 - W * 0.22, bodyLen, W * 0.22);
-      // Ferrule + eraser
       ctx.fillStyle = "#b9c0cc";
       ctx.fillRect(-hl + L * 0.05, -W / 2, L * 0.09, W);
       ctx.fillStyle = r.cap;
       rr(ctx, -hl, -W / 2, L * 0.07, W, W * 0.3);
       ctx.fill();
-      // Sharpened tip
       ctx.fillStyle = r.tip;
       ctx.beginPath();
       ctx.moveTo(-hl + L * 0.92, -W / 2);
@@ -374,7 +457,6 @@ export function createRenderer(canvas) {
       ctx.lineTo(hl - L * 0.035, W * 0.14);
       ctx.fill();
     } else {
-      // Barrel
       if (r.shape === "metal") {
         const mg = ctx.createLinearGradient(0, -W / 2, 0, W / 2);
         mg.addColorStop(0, "#e6ebf4");
@@ -386,11 +468,9 @@ export function createRenderer(canvas) {
       }
       rr(ctx, -hl + L * 0.06, -W / 2, L * 0.88, W, W / 2);
       ctx.fill();
-      // Barrel sheen
       ctx.fillStyle = "rgba(255,255,255,0.28)";
       rr(ctx, -hl + L * 0.1, -W / 2 + W * 0.12, L * 0.8, W * 0.18, W * 0.09);
       ctx.fill();
-      // Cap end (back)
       ctx.fillStyle = r.cap;
       rr(ctx, -hl, -W / 2, L * 0.3, W, W / 2);
       ctx.fill();
@@ -399,7 +479,6 @@ export function createRenderer(canvas) {
         rr(ctx, -hl + L * 0.04, -W * 0.95, L * 0.2, W * 0.32, W * 0.12);
         ctx.fill();
       }
-      // Tip cone (front)
       ctx.fillStyle = r.tip;
       ctx.beginPath();
       ctx.moveTo(hl - L * 0.12, -W / 2);
@@ -417,11 +496,11 @@ export function createRenderer(canvas) {
   }
 
   function addFall(ev, pen) {
-    falls.push({ ...ev, pen, t0: performance.now() });
+    falls.push({ ...ev, pen, t: 0 });
     drawn.delete(ev.uid);
+    teetering.delete(ev.uid);
   }
 
-  // After an authoritative snapshot, let drawn pens glide to their new spots.
   function softenNextFrames() {
     for (const d of drawn.values()) d.tau = SNAP_TAU;
   }
@@ -432,9 +511,12 @@ export function createRenderer(canvas) {
 
   return {
     view, resize, draw, addFall, softenNextFrames, setTable, drawPenSprite: drawPen,
+    fx, camFollow, camHome, killCam, introPulse,
+    confettiBurst() { fx.confetti(cw, ch, dpr); },
     shake(mag) { shakeMag = Math.min(16, shakeMag + mag); },
     setPreview(p) { preview = p; },
-    setHighlight(uid, color) { highlightUid = uid; if (color) highlightColor = color; }
+    setHighlight(uid, color) { highlightUid = uid; if (color) highlightColor = color; },
+    set teeterCb(cb) { onTeeter = cb; }
   };
 }
 

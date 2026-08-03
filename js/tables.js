@@ -32,7 +32,7 @@ export const TABLES = [
     id: "canteen",
     name: "Canteen Table",
     shape: "round", r: 4.1,
-    frictionMult: 0.62,   // steel top, everything glides
+    frictionMult: 0.78,   // steel top, everything glides
     theme: {
       top: ["#8f98a6", "#b7bfcb", "#79818e"],
       planks: 0, grain: false, scratches: true, steel: true,
@@ -56,7 +56,7 @@ export const TABLES = [
     id: "teachersdesk",
     name: "Teacher's Desk",
     shape: "rect", w: 6.6, h: 9.4,
-    frictionMult: 0.45,   // glass top, terrifying
+    frictionMult: 0.62,   // glass top, terrifying
     theme: {
       top: ["#25404a", "#31525e", "#1e3640"],
       planks: 0, grain: false, scratches: false, glass: true,

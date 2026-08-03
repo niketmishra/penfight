@@ -46,7 +46,7 @@ export const PENS = [
     trait: "Slippery. Slides far on the same flick, drifts past the edge if you overcook it.",
     length: 1.38, dia: 0.18, mass: 1.1,
     friction: 0.25, restitution: 0.42,
-    linDampMult: 0.65, angDampMult: 0.8,
+    linDampMult: 0.74, angDampMult: 0.8,
     render: { shape: "round", body: "#fff2b8", cap: "#ff9f1c", tip: "#e0c979", clip: false }
   },
   {
@@ -59,7 +59,7 @@ export const PENS = [
     trait: "Slim and slight. A smaller target, but light enough to get launched.",
     length: 1.42, dia: 0.13, mass: 0.85,
     friction: 0.35, restitution: 0.48,
-    linDampMult: 0.9, angDampMult: 0.9,
+    linDampMult: 1.0, angDampMult: 0.9,
     render: { shape: "round", body: "#101318", cap: "#38bdf8", tip: "#2a2e38", clip: true }
   },
   {
@@ -85,7 +85,7 @@ export const PENS = [
     trait: "Barely any spin drag. Set it spinning and it stays live.",
     length: 1.40, dia: 0.15, mass: 0.95,
     friction: 0.30, restitution: 0.50,
-    linDampMult: 0.95, angDampMult: 0.5,
+    linDampMult: 1.0, angDampMult: 0.5,
     render: { shape: "round", body: "#1b2130", cap: "#8b5cf6", tip: "#39415a", clip: true }
   },
   {

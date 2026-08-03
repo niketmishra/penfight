@@ -84,7 +84,9 @@ function takeTurn(match, bot) {
   const carry = Math.min(3.5, rayToEdge(table, best.x, best.y, dx, dy) * 0.8 + 0.5);
   const powB = bot.powBase || 1.15, powS = bot.powSpread ?? 0.25;
   const vNeed = Math.sqrt(2 * a * (best.dist + carry)) * (powB + Math.random() * powS);
-  const J = Math.min(J_MAX, Math.max(J_MAX * 0.2, vNeed * myPen.mass));
+  // physics multiplies J by (0.4 + 0.6 * mass); invert that to hit vNeed
+  const massComp = 0.4 + 0.6 * myPen.mass;
+  const J = Math.min(J_MAX, Math.max(J_MAX * 0.15, vNeed * myPen.mass / massComp));
 
   match.applyFlick(bot.id, {
     dx, dy, J,

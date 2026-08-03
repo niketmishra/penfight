@@ -62,7 +62,12 @@ const flow = { kind: null, modeId: "classic", tableId: "classroom", teamSize: 4 
 let passNames = ["", ""];
 let lastPassNames = null;
 
-flick.previewCb = p => renderer.setPreview(p);
+flick.previewCb = p => {
+  if (p && match && p.uid != null && p.J != null) {
+    p.path = match.sim.predictPath(p.uid, { dx: p.dx, dy: p.dy, J: p.J, off: p.off });
+  }
+  renderer.setPreview(p);
+};
 
 flick.fire = params => {
   if (!match) return;

@@ -13,8 +13,9 @@ export const HALF = { x: TABLE.w / 2, y: TABLE.h / 2 };
 // Tuning knobs. All feel lives here and in pens.js.
 export const PHYS = {
   dt: 1 / 120,               // fixed physics step
-  fricDecel: 3.4,            // dry linear friction, units/s^2
-  linVisc: 0.28,             // viscous linear drag, 1/s
+  fricDecel: 4.8,            // dry linear friction, units/s^2
+  linVisc: 0.35,             // viscous linear drag, 1/s
+  massComp: [0.4, 0.6],      // impulse = J * (0.4 + 0.6 * mass): heavy pens playable, still slower
   angFricDecel: 7.0,         // dry angular friction, rad/s^2
   angVisc: 0.5,              // viscous angular drag, 1/s
   maxOmega: 42,              // sanity cap on spin, rad/s
@@ -30,6 +31,12 @@ export const PHYS = {
   simCap: 8.0,               // hard cap on one turn's sim time, seconds
   hitImpulseMin: 0.55        // contacts above this fire hit events (sound, shake)
 };
+
+// The one impulse formula. Heavy pens get partial compensation so every pen
+// is playable, but they still launch slower and travel shorter per swipe.
+export function flickImpulse(pen, J) {
+  return J * (PHYS.massComp[0] + PHYS.massComp[1] * pen.mass) * (pen.flickMult || 1);
+}
 
 export function createSim({ table = tableById("classroom"), holes = [], zones = [], props = [] } = {}) {
   const world = new pl.World({ gravity: new pl.Vec2(0, 0) });
@@ -115,7 +122,9 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
       angularDamping: 0
     });
     // Capsule: central box plus a circle at each end. Long axis is local x.
-    const area = 2 * (hl - r) * pen.dia + Math.PI * r * r;
+    // Planck sums per-fixture masses, so the divisor must count BOTH circles
+    // for the body mass to land exactly on pen.mass.
+    const area = 2 * (hl - r) * pen.dia + Math.PI * r * r * 2;
     const density = (pen.mass * (pen.massMult || 1)) / area;
     const opts = { density, friction: pen.friction, restitution: pen.restitution };
     body.createFixture(new pl.Box(hl - r, r), opts);
@@ -160,7 +169,7 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     const axis = body.getWorldVector(new pl.Vec2(1, 0));
     const pos = body.getPosition();
     const pt = new pl.Vec2(pos.x + axis.x * off, pos.y + axis.y * off);
-    const J = params.J * (pen.flickMult || 1);
+    const J = flickImpulse(pen, params.J);
     body.applyLinearImpulse(new pl.Vec2(params.dx * J, params.dy * J), pt, true);
     stillTime = 0;
     simTime = 0;
@@ -294,6 +303,54 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     return true;
   }
 
+  // Forward-integrate the flick with the exact same drag + Magnus math,
+  // ignoring collisions. Feeds the dotted aim trajectory, so what you see
+  // is what the desk will do.
+  function predictPath(uid, params, maxT = 4) {
+    const body = bodies.get(uid);
+    if (!body) return null;
+    const pen = body.getUserData().pen;
+    const effMass = pen.mass * (pen.massMult || 1);
+    const J = flickImpulse(pen, params.J);
+    const pos = body.getPosition();
+    const a0 = body.getAngle();
+    const off = Math.max(-1, Math.min(1, params.off || 0)) * (pen.length / 2) * 0.9;
+    const rX = Math.cos(a0) * off, rY = Math.sin(a0) * off;
+    let vx = params.dx * J / effMass, vy = params.dy * J / effMass;
+    const I = effMass * pen.length * pen.length / 12;
+    let w = (rX * params.dy * J - rY * params.dx * J) / I;
+    w = Math.max(-PHYS.maxOmega, Math.min(PHYS.maxOmega, w));
+    let x = pos.x, y = pos.y;
+    const dt = PHYS.dt;   // same step as the real sim so the ghost never lies
+    const points = [];
+    let exit = null;
+    for (let t = 0, i = 0; t < maxT; t += dt, i++) {
+      const sp0 = Math.hypot(vx, vy);
+      if (sp0 <= PHYS.settleLin) break;
+      const mk = PHYS.magnusK * (pen.magnusMult || 1);
+      if (mk && Math.abs(w) > 0.5 && sp0 > 0.4) {
+        let ax = -mk * w * vy, ay = mk * w * vx;
+        const am = Math.hypot(ax, ay);
+        if (am > PHYS.magnusCap) { ax *= PHYS.magnusCap / am; ay *= PHYS.magnusCap / am; }
+        vx += ax * dt; vy += ay * dt;
+      }
+      const zoneMult = frictionMultAt(x, y, pen);
+      const sp = Math.hypot(vx, vy);
+      const drop = (PHYS.fricDecel * pen.linDampMult * zoneMult + PHYS.linVisc * sp) * dt;
+      const k = Math.max(0, sp - drop) / sp;
+      vx *= k; vy *= k;
+      const aw = Math.abs(w);
+      if (aw > 0) {
+        const dropA = (PHYS.angFricDecel * pen.angDampMult * Math.max(0.6, zoneMult) + PHYS.angVisc * aw) * dt;
+        w = Math.sign(w) * Math.max(0, aw - dropA);
+      }
+      x += vx * dt; y += vy * dt;
+      if (i % 6 === 0) points.push({ x, y });
+      if (!tableContains(table, x, y) || inHole(holes, x, y)) { exit = { x, y }; break; }
+    }
+    return { points, end: { x, y }, exit };
+  }
+
   // 0..1 flight arc for the renderer's lift and shadow separation.
   function airborneLift(uid) {
     const air = airborne.get(uid);
@@ -337,7 +394,7 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
 
   return {
     world, bodies, statics, table, holes, zones, props, half,
-    addPen, removePen, addProp, applyFlick, step, airborneLift,
+    addPen, removePen, addProp, applyFlick, step, airborneLift, predictPath,
     isSettled, snapshot, applySnapshot, eachPen,
     resetSimClock() { simTime = 0; stillTime = 0; },
     getBody(uid) { return bodies.get(uid); }

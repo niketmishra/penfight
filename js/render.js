@@ -506,27 +506,63 @@ export function createRenderer(canvas) {
 
   function drawPreview(p, tNow) {
     const s = view.toScreen(p.x, p.y);
-    const len = (0.8 + p.power * 3.2) * eScale;
-    ctx.save();
-    ctx.strokeStyle = "rgba(255,209,102,0.85)";
-    ctx.lineWidth = 3 * dpr;
-    ctx.setLineDash([10 * dpr, 8 * dpr]);
-    ctx.lineDashOffset = -(tNow / 30) % (18 * dpr);
-    ctx.beginPath();
-    ctx.moveTo(s.x, s.y);
-    ctx.lineTo(s.x + p.dx * len, s.y + p.dy * len);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    const ex = s.x + p.dx * len, ey = s.y + p.dy * len;
     const aa = Math.atan2(p.dy, p.dx);
-    ctx.fillStyle = "rgba(255,209,102,0.85)";
-    ctx.beginPath();
-    ctx.moveTo(ex, ey);
-    ctx.lineTo(ex - Math.cos(aa - 0.45) * 10 * dpr, ey - Math.sin(aa - 0.45) * 10 * dpr);
-    ctx.lineTo(ex - Math.cos(aa + 0.45) * 10 * dpr, ey - Math.sin(aa + 0.45) * 10 * dpr);
+    ctx.save();
+
+    if (p.path && p.path.points.length) {
+      // Dotted predicted trajectory; dots march along the path.
+      const pts = p.path.points;
+      const danger = Boolean(p.path.exit);
+      const phase = (tNow / 140) % 1;
+      for (let i = 0; i < pts.length; i++) {
+        const sp = view.toScreen(pts[i].x, pts[i].y);
+        const frac = i / pts.length;
+        const nearEnd = danger && frac > 0.72;
+        const pulse = 0.5 + 0.5 * Math.sin((frac * 6 - phase * Math.PI * 2) * 2);
+        ctx.fillStyle = nearEnd
+          ? `rgba(255,84,112,${0.55 + pulse * 0.3})`
+          : `rgba(244,240,230,${0.35 + pulse * 0.35 - frac * 0.15})`;
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, (2.2 + pulse * 0.9) * dpr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (danger) {
+        // Red X where the pen leaves the desk
+        const ex = view.toScreen(p.path.exit.x, p.path.exit.y);
+        ctx.strokeStyle = "rgba(255,84,112,0.95)";
+        ctx.lineWidth = 3.5 * dpr;
+        const r = 8 * dpr;
+        ctx.beginPath();
+        ctx.moveTo(ex.x - r, ex.y - r); ctx.lineTo(ex.x + r, ex.y + r);
+        ctx.moveTo(ex.x + r, ex.y - r); ctx.lineTo(ex.x - r, ex.y + r);
+        ctx.stroke();
+      } else {
+        // Stop marker: where the pen will come to rest
+        const en = view.toScreen(p.path.end.x, p.path.end.y);
+        ctx.strokeStyle = "rgba(244,240,230,0.9)";
+        ctx.lineWidth = 2.5 * dpr;
+        ctx.beginPath();
+        ctx.arc(en.x, en.y, 7 * dpr, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(244,240,230,0.5)";
+        ctx.beginPath();
+        ctx.arc(en.x, en.y, 2.5 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Power bar next to the contact point
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    rr(ctx, s.x - 26 * dpr, s.y + 18 * dpr, 52 * dpr, 7 * dpr, 3.5 * dpr);
     ctx.fill();
+    const pw = p.power;
+    ctx.fillStyle = pw > 0.85 ? "rgba(255,84,112,0.95)" : pw > 0.55 ? "rgba(242,177,53,0.95)" : "rgba(122,220,140,0.95)";
+    rr(ctx, s.x - 24 * dpr, s.y + 19.5 * dpr, 48 * dpr * pw, 4 * dpr, 2 * dpr);
+    ctx.fill();
+
+    // Spin hint when hitting off center
     if (Math.abs(p.off) > 0.35) {
-      ctx.strokeStyle = "rgba(255,209,102,0.6)";
+      ctx.strokeStyle = "rgba(242,177,53,0.7)";
       ctx.lineWidth = 2 * dpr;
       ctx.beginPath();
       const dir = p.off > 0 ? 1 : -1;

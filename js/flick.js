@@ -16,7 +16,14 @@ const SAMPLE_MS = 110;         // fit release velocity over this window
 const MIN_FIRE = 5.0;          // world units/s, below this a release is aim-only
 const MAX_SPEED = 40.0;        // world units/s, finger speed cap
 const PREVIEW_MIN_DRAG = 0.12; // world units of travel before ghost shows
-export const J_MAX = 20.0;     // impulse at max finger speed
+const DRAG_FULL = 3.0;         // drag distance for 100% power in aim mode
+const CANCEL_DRAG = 0.35;      // release closer than this to the start = cancel
+export const J_MAX = 10.5;     // impulse at max finger speed (before mass comp)
+const POWER_CURVE = 0.85;      // concave: low swipes stay gentle and controllable
+
+export function powerToJ(frac) {
+  return J_MAX * Math.pow(Math.max(0, Math.min(1, frac)), POWER_CURVE);
+}
 
 export function createFlick(canvas, view) {
   const candidates = new Map();  // pointerId -> {samples: [{x, y, t}]}
@@ -40,7 +47,10 @@ export function createFlick(canvas, view) {
     const { cx, cy, hl } = penAxis();
     const reach = (hl + ARM_EXTRA) * (armed.pen.armMult || 1);   // Lambu strikes from further
     if (Math.hypot(w.x - cx, w.y - cy) > reach) return;  // palm or stray touch
-    candidates.set(e.pointerId, { samples: [{ x: w.x, y: w.y, t: performance.now() }] });
+    candidates.set(e.pointerId, {
+      origin: { x: w.x, y: w.y },
+      samples: [{ x: w.x, y: w.y, t: performance.now() }]
+    });
     e.preventDefault();
   }
 
@@ -55,18 +65,28 @@ export function createFlick(canvas, view) {
 
     const v = fitVelocity(rec.samples);
     const speed = Math.hypot(v.x, v.y);
-    const first = rec.samples[0];
-    const dragged = Math.hypot(w.x - first.x, w.y - first.y);
-    if (speed < MIN_FIRE && dragged > PREVIEW_MIN_DRAG) {
-      // Slow aim drag: show the ghost. A real flick is too fast to ever see it.
+    const dragDx = w.x - rec.origin.x, dragDy = w.y - rec.origin.y;
+    const dragLen = Math.hypot(dragDx, dragDy);
+    if (speed < MIN_FIRE && dragLen > PREVIEW_MIN_DRAG) {
+      // Slow drag = carrom-style aiming: drag direction is the shot, drag
+      // distance is the power, and the trajectory ghost shows the outcome.
+      rec.aiming = true;
       const c = contact(rec);
+      const power = Math.min(1, dragLen / DRAG_FULL);
+      rec.aimParams = {
+        dx: dragDx / (dragLen || 1), dy: dragDy / (dragLen || 1),
+        J: powerToJ(power), off: c.off
+      };
       preview({
         x: c.px, y: c.py,
-        dx: v.x / (speed || 1), dy: v.y / (speed || 1),
-        power: Math.min(1, speed / MAX_SPEED),
-        off: c.off
+        dx: rec.aimParams.dx, dy: rec.aimParams.dy,
+        power,
+        J: rec.aimParams.J,
+        off: c.off,
+        uid: armed.body.getUserData().uid
       });
-    } else {
+    } else if (speed >= MIN_FIRE) {
+      rec.aiming = false;
       preview(null);
     }
   }
@@ -79,17 +99,31 @@ export function createFlick(canvas, view) {
     rec.samples.push({ ...rec.samples[rec.samples.length - 1] });
     const v = fitVelocity(rec.samples);
     const speed = Math.hypot(v.x, v.y);
-    if (speed < MIN_FIRE) return;                       // hesitation, keep aiming
-    const c = contact(rec);
-    const capped = Math.min(speed, MAX_SPEED);
-    const params = {
-      dx: v.x / speed, dy: v.y / speed,
-      J: J_MAX * (capped / MAX_SPEED),
-      off: c.off
-    };
     const a = armed;
-    disarm();
-    if (onFire) onFire(params, a);
+
+    if (speed >= MIN_FIRE) {
+      // Fast flick: fire from the swipe itself, the classic way.
+      const c = contact(rec);
+      const capped = Math.min(speed, MAX_SPEED);
+      const params = {
+        dx: v.x / speed, dy: v.y / speed,
+        J: powerToJ(capped / MAX_SPEED),
+        off: c.off
+      };
+      disarm();
+      if (onFire) onFire(params, a);
+      return;
+    }
+
+    // Aimed release: fire the shot the ghost was showing. A tiny drag back
+    // toward the start cancels instead.
+    const last = rec.samples[rec.samples.length - 1];
+    const dragLen = Math.hypot(last.x - rec.origin.x, last.y - rec.origin.y);
+    if (rec.aiming && rec.aimParams && dragLen > CANCEL_DRAG) {
+      const params = rec.aimParams;
+      disarm();
+      if (onFire) onFire(params, a);
+    }
   }
 
   // Where did the swipe cross the pen? Signed offset along the long axis,

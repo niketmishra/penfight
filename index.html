@@ -39,10 +39,43 @@
     <p class="tagline">The school bench classic. Flick your pen, clear the desk, last pen standing wins.</p>
     <div class="btn-col">
       <button id="btn-practice" class="big-btn" type="button">Practice vs bots</button>
+      <button id="btn-pass" class="big-btn" type="button">Pass and play</button>
       <button id="btn-create" class="big-btn accent" type="button">Create room</button>
       <button id="btn-join" class="big-btn accent" type="button">Join room</button>
     </div>
     <p id="online-hint" class="hint hidden">Online play is not set up yet. Open README.md, add your Supabase keys to js/config.js.</p>
+  </div>
+</div>
+
+<div class="screen hidden" id="s-mode">
+  <div class="stack tall">
+    <h2 id="mode-title">Pick your battle</h2>
+    <div id="mode-cards"></div>
+    <div id="teamsize-row" class="row hidden">
+      <button class="size-btn sel" data-size="4" type="button">2 vs 2</button>
+      <button class="size-btn" data-size="6" type="button">3 vs 3</button>
+    </div>
+    <p class="hint">Desk</p>
+    <div id="table-chips"></div>
+    <div class="row">
+      <button id="mode-back" class="ghost-btn" type="button">Back</button>
+      <button id="mode-go" class="big-btn accent" type="button">Next</button>
+    </div>
+  </div>
+</div>
+
+<div class="screen hidden" id="s-pass">
+  <div class="stack tall">
+    <h2>Who's on the bench?</h2>
+    <p class="hint">2 to 6 players, one phone. Pens get handed out.</p>
+    <div id="pass-names"></div>
+    <div class="row">
+      <button id="pass-add" class="ghost-btn" type="button">+ Add player</button>
+    </div>
+    <div class="row">
+      <button id="pass-back" class="ghost-btn" type="button">Back</button>
+      <button id="pass-start" class="big-btn accent" type="button">Start</button>
+    </div>
   </div>
 </div>
 
@@ -109,6 +142,15 @@
       <button id="btn-rematch" class="big-btn accent" type="button">Rematch</button>
       <button id="btn-home" class="big-btn" type="button">Home</button>
     </div>
+  </div>
+</div>
+
+<div id="pass-overlay" class="hidden">
+  <div class="pass-card">
+    <p class="hint">Pass the phone to</p>
+    <h2 id="pass-who"></h2>
+    <p id="pass-pen" class="hint"></p>
+    <button id="pass-ready" class="big-btn accent" type="button">I'm holding it</button>
   </div>
 </div>
 

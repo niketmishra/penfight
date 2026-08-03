@@ -10,7 +10,8 @@ import * as sfx from "./sfx.js";
 import * as ui from "./screens.js";
 import { onlineConfigured } from "./net.js";
 import { canonicalize, isValidCode } from "./code.js";
-import { modeById, teamOfSeat, TEAM_NAMES } from "./modes.js";
+import { MODES, modeById, teamOfSeat, TEAM_NAMES } from "./modes.js";
+import { TABLES, tableById } from "./tables.js";
 import { commentate } from "./commentary.js";
 
 const $ = id => document.getElementById(id);
@@ -40,15 +41,20 @@ const flick = createFlick(canvas, renderer.view);
 
 let match = null;
 let session = null;          // online room session
-let mode = null;             // "practice" | "online"
+let mode = null;             // "practice" | "online" | "pass"
 let pickerMode = null;       // "practice" | "create" | "join"
 let pendingJoinCode = null;
 let turnDeadline = null;
 let botsCtl = null;
 
+// What the player chose on the mode screen.
+const flow = { kind: null, modeId: "classic", tableId: "classroom", teamSize: 4 };
+let passNames = ["", ""];
+let lastPassNames = null;
+
 flick.previewCb = p => renderer.setPreview(p);
 
-flick.fire = (params, armed) => {
+flick.fire = params => {
   if (!match) return;
   sfx.whoosh(params.J / 20);
   if (mode === "online" && session) {
@@ -57,7 +63,8 @@ flick.fire = (params, armed) => {
       session.sendFlick(match.state.turnIdx, params, pre);
     }
   } else {
-    match.applyFlick(myId, params);
+    const shooter = mode === "pass" ? match.state.currentId : myId;
+    match.applyFlick(shooter, params);
   }
 };
 
@@ -102,7 +109,7 @@ function matName(penId) {
   return shape === "metal" ? "metal" : shape === "pencil" ? "wood" : "plastic";
 }
 
-function wireMatch(m, players) {
+function wireMatch(m, players, opts = {}) {
   let killCamTurn = -1;
   let lastTeeterAt = 0;
 
@@ -186,16 +193,23 @@ function wireMatch(m, players) {
       stormAnnounced = true;
       ui.comment(commentate("storm"));
     }
-    const mine = t.playerId === myId;
     const p = m.byId.get(t.playerId);
-    ui.setTurnBanner(mine ? "Your turn, flick!" : `${p ? p.name : "..."} is lining up`, mine);
     const seatIdx = players.findIndex(q => q.id === t.playerId);
-    renderer.setHighlight(t.playerId, ui.chipColor(seatIdx < 0 ? 0 : seatIdx));
-    if (mine) {
-      const body = m.sim.getBody(myId);
-      if (body) flick.arm(body, penById(m.byId.get(myId).penId));
-    } else {
+    const hlColor = p && p.team != null ? undefined : ui.chipColor(seatIdx < 0 ? 0 : seatIdx);
+    renderer.setHighlight(t.playerId, hlColor);
+    if (opts.passPlay) {
       flick.disarm();
+      ui.setTurnBanner(`${p ? p.name : "..."}'s turn`, true);
+      ui.showPassOverlay(p ? p.name : "", p ? penById(p.penId).name : "");
+    } else {
+      const mine = t.playerId === myId;
+      ui.setTurnBanner(mine ? "Your turn, flick!" : `${p ? p.name : "..."} is lining up`, mine);
+      if (mine) {
+        const body = m.sim.getBody(myId);
+        if (body) flick.arm(body, penById(m.byId.get(myId).penId));
+      } else {
+        flick.disarm();
+      }
     }
   });
 
@@ -232,30 +246,44 @@ function myName() { return store.name || "You"; }
 
 // ---------- practice ----------
 
+function localVictory({ winner, winnerTeam, myTeam }) {
+  renderer.setHighlight(null);
+  flick.disarm();
+  if (winnerTeam != null) {
+    const won = myTeam != null && winnerTeam === myTeam;
+    if (won) sfx.win();
+    ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins!`,
+      winner ? `${winner.name}'s bench cleared the desk.` : "",
+      won ? "🏆" : "💀");
+  } else if (winner && winner.id === myId) {
+    sfx.win();
+    ui.showVictory("You win!", `Your ${penById(winner.penId).name} owns the desk.`, "🏆");
+  } else {
+    ui.showVictory(winner ? `${winner.name} wins` : "Nobody wins",
+      winner ? `${winner.name}'s ${penById(winner.penId).name} is the last one standing.` : "Everyone fell off. Chaos.",
+      winner && winner.id !== myId && !winner.isBot ? "🏆" : "💀");
+  }
+}
+
 function startPractice() {
   cleanupMatch();
   mode = "practice";
+  const modeCfg = modeById(flow.modeId);
   const me = { id: myId, name: myName(), penId: store.pen, isBot: false };
-  const bots = botRoster(store.bots, store.pen, PENS);
+  const botCount = modeCfg.teams ? flow.teamSize - 1 : store.bots;
+  const bots = botRoster(botCount, store.pen, PENS);
   const players = [me, ...bots];
-  players.forEach((p, i) => { p.seat = i; });
-  match = createMatch({ players, autoAdvance: true, mode: "classic" });
+  players.forEach((p, i) => {
+    p.seat = i;
+    if (modeCfg.teams) p.team = teamOfSeat(i);
+  });
+  match = createMatch({ players, autoAdvance: true, mode: flow.modeId, tableId: flow.tableId });
   renderer.setTable(match.table, { holes: match.holes });
   wireMatch(match, players);
   botsCtl = attachBots(match);
-  match.on("over", ({ winner }) => {
-    setTimeout(() => {
-      renderer.setHighlight(null);
-      flick.disarm();
-      if (winner && winner.id === myId) {
-        sfx.win();
-        ui.showVictory("You win!", `Your ${penById(winner.penId).name} owns the desk.`, "🏆");
-      } else {
-        ui.showVictory(winner ? `${winner.name} wins` : "Nobody wins",
-          winner ? `${winner.name}'s ${penById(winner.penId).name} is the last one standing.` : "Everyone fell off. Chaos.",
-          "💀");
-      }
-    }, 900);
+  const myTeam = modeCfg.teams ? teamOfSeat(0) : null;
+  match.on("over", ({ winner, winnerTeam }) => {
+    setTimeout(() => localVictory({ winner, winnerTeam, myTeam }), 900);
   });
   ui.show(null);
   ui.setTimer(null);
@@ -263,12 +291,51 @@ function startPractice() {
   match.start();
 }
 
+function startPassPlay(names) {
+  cleanupMatch();
+  mode = "pass";
+  lastPassNames = [...names];
+  const modeCfg = modeById(flow.modeId);
+  const pens = [...PENS];
+  shuffleArr(pens);
+  const players = names.map((nm, i) => ({
+    id: "local-" + i,
+    name: (nm || "").trim() || "Player " + (i + 1),
+    penId: pens[i % pens.length].id,
+    isBot: false,
+    seat: i,
+    team: modeCfg.teams ? teamOfSeat(i) : undefined
+  }));
+  match = createMatch({ players, autoAdvance: true, mode: flow.modeId, tableId: flow.tableId });
+  renderer.setTable(match.table, { holes: match.holes });
+  wireMatch(match, players, { passPlay: true });
+  match.on("over", ({ winner, winnerTeam }) => {
+    ui.hidePassOverlay();
+    setTimeout(() => localVictory({ winner, winnerTeam, myTeam: null }), 900);
+  });
+  ui.show(null);
+  ui.setTimer(null);
+  $("emoji-bar").classList.add("hidden");
+  match.start();
+}
+
+function shuffleArr(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
 // ---------- online ----------
 
 async function startOnline(kind, code) {
   cleanupMatch();
   mode = "online";
-  const me = { playerId: myId, name: myName(), penId: store.pen };
+  const me = {
+    playerId: myId, name: myName(), penId: store.pen,
+    modeId: kind === "create" ? flow.modeId : undefined,
+    tableId: kind === "create" ? flow.tableId : undefined
+  };
   const { createRoomSession, joinRoomSession } = await import("./room.js");
   session = kind === "create"
     ? await createRoomSession(me)
@@ -276,14 +343,21 @@ async function startOnline(kind, code) {
 
   $("lobby-code").textContent = session.code;
   ui.show("s-lobby");
-  ui.renderLobby(session.roster, myId, session.hostId);
+  const lobbyOpts = () => {
+    const m = modeById(session.modeId);
+    return {
+      minPlayers: m.teams ? 4 : m.minPlayers || 2,
+      subtitle: `${m.icon} ${m.name} · ${tableById(session.tableId).name}`
+    };
+  };
+  ui.renderLobby(session.roster, myId, session.hostId, lobbyOpts());
 
   session.on("roster", players => {
-    if (session.status === "lobby") ui.renderLobby(players, myId, session.hostId);
+    if (session.status === "lobby") ui.renderLobby(players, myId, session.hostId, lobbyOpts());
     else if (match) refreshChips(match, players);
   });
   session.on("host", () => {
-    if (session.status === "lobby") ui.renderLobby(session.roster, myId, session.hostId);
+    if (session.status === "lobby") ui.renderLobby(session.roster, myId, session.hostId, lobbyOpts());
   });
   session.on("start", payload => beginOnlineMatch(payload));
   session.on("emoji", ({ emoji }) => ui.floatEmoji(emoji));
@@ -377,10 +451,11 @@ function cleanupMatch() {
 
 // ---------- screen flow ----------
 
-$("btn-practice").addEventListener("click", () => openPicker("practice"));
+$("btn-practice").addEventListener("click", () => openModeSelect("practice"));
+$("btn-pass").addEventListener("click", () => openModeSelect("pass"));
 $("btn-create").addEventListener("click", () => {
   if (!onlineConfigured) { $("online-hint").classList.remove("hidden"); return; }
-  openPicker("create");
+  openModeSelect("create");
 });
 $("btn-join").addEventListener("click", () => {
   if (!onlineConfigured) { $("online-hint").classList.remove("hidden"); return; }
@@ -389,9 +464,71 @@ $("btn-join").addEventListener("click", () => {
   ui.show("s-join");
 });
 
+// ---------- mode select ----------
+
+function openModeSelect(kind) {
+  flow.kind = kind;
+  const list = MODES.filter(m => !m.solo);
+  if (!list.some(m => m.id === flow.modeId)) flow.modeId = "classic";
+  ui.buildModeCards(list, flow.modeId, m => { flow.modeId = m.id; syncModeRows(); });
+  ui.buildTableChips(TABLES, flow.tableId, t => { flow.tableId = t.id; });
+  $("mode-title").textContent =
+    kind === "create" ? "Set the room rules" :
+    kind === "pass" ? "One phone, full bench" : "Pick your battle";
+  syncModeRows();
+  ui.show("s-mode");
+}
+
+function syncModeRows() {
+  const m = modeById(flow.modeId);
+  $("teamsize-row").classList.toggle("hidden", !(m.teams && flow.kind !== "create"));
+}
+
+document.querySelectorAll(".size-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".size-btn").forEach(b => b.classList.remove("sel"));
+    btn.classList.add("sel");
+    flow.teamSize = Number(btn.dataset.size);
+  });
+});
+
+$("mode-back").addEventListener("click", () => ui.show("s-home"));
+$("mode-go").addEventListener("click", () => {
+  if (flow.kind === "pass") {
+    const m = modeById(flow.modeId);
+    while (passNames.length < (m.teams ? flow.teamSize : 2)) passNames.push("");
+    if (m.teams) passNames.length = flow.teamSize;
+    ui.renderPassNames(passNames);
+    ui.show("s-pass");
+  } else {
+    openPicker(flow.kind);
+  }
+});
+
+$("pass-add").addEventListener("click", () => {
+  if (passNames.length < 6) { passNames.push(""); ui.renderPassNames(passNames); }
+});
+$("pass-back").addEventListener("click", () => ui.show("s-mode"));
+$("pass-start").addEventListener("click", () => {
+  const m = modeById(flow.modeId);
+  const min = m.teams ? 4 : 2;
+  if (passNames.length < min) { ui.toast(`Need at least ${min} players`, true); return; }
+  startPassPlay(passNames);
+});
+
+$("pass-ready").addEventListener("click", () => {
+  ui.hidePassOverlay();
+  if (!match || mode !== "pass" || match.state.phase !== "aiming") return;
+  const cur = match.state.currentId;
+  const body = match.sim.getBody(cur);
+  const p = match.byId.get(cur);
+  if (body && p) flick.arm(body, penById(p.penId));
+});
+
 function openPicker(kind) {
   pickerMode = kind;
-  $("practice-opts").classList.toggle("hidden", kind !== "practice");
+  const m = modeById(flow.modeId);
+  $("practice-opts").classList.toggle("hidden", kind !== "practice" || Boolean(m.teams));
   $("bots-count").textContent = store.bots;
   $("name-input").value = store.name;
   ui.buildPicker(store.pen, pen => { store.pen = pen.id; });
@@ -407,7 +544,8 @@ $("bots-plus").addEventListener("click", () => {
   $("bots-count").textContent = store.bots;
 });
 
-$("picker-back").addEventListener("click", () => ui.show("s-home"));
+$("picker-back").addEventListener("click", () =>
+  ui.show(pickerMode === "join" ? "s-join" : "s-mode"));
 $("picker-go").addEventListener("click", async () => {
   const name = $("name-input").value.trim();
   store.name = name || "Player";
@@ -464,6 +602,7 @@ $("btn-quit").addEventListener("click", () => { cleanupMatch(); ui.show("s-home"
 
 $("btn-rematch").addEventListener("click", () => {
   if (mode === "practice") { startPractice(); return; }
+  if (mode === "pass" && lastPassNames) { startPassPlay(lastPassNames); return; }
   if (session) {
     session.voteRematch();
     $("btn-rematch").textContent = "Waiting for others";

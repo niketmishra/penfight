@@ -1,10 +1,11 @@
 // DOM screens and HUD. main.js wires the callbacks; this module only paints.
 
 import { PENS, statBars } from "./pens.js";
+import { TEAM_COLORS } from "./modes.js";
 
 const $ = id => document.getElementById(id);
 
-const SCREENS = ["s-home", "s-picker", "s-join", "s-lobby", "s-victory"];
+const SCREENS = ["s-home", "s-mode", "s-pass", "s-picker", "s-join", "s-lobby", "s-victory"];
 const CHIP_COLORS = ["#3d7bff", "#ff5470", "#ffd166", "#4ade80", "#c084fc", "#fb923c"];
 
 export function show(name) {
@@ -13,6 +14,76 @@ export function show(name) {
 }
 
 export function chipColor(seat) { return CHIP_COLORS[seat % CHIP_COLORS.length]; }
+
+// ---------- mode + table select ----------
+
+export function buildModeCards(modes, selectedId, onSelect) {
+  const wrap = $("mode-cards");
+  wrap.innerHTML = "";
+  for (const m of modes) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "mode-card" + (m.id === selectedId ? " sel" : "");
+    card.innerHTML = `<span class="mi">${m.icon}</span><span><h4>${esc(m.name)}</h4><p>${esc(m.desc)}</p></span>`;
+    card.addEventListener("click", () => {
+      wrap.querySelectorAll(".mode-card").forEach(c => c.classList.remove("sel"));
+      card.classList.add("sel");
+      onSelect(m);
+    });
+    wrap.appendChild(card);
+  }
+}
+
+export function buildTableChips(tables, selectedId, onSelect) {
+  const wrap = $("table-chips");
+  wrap.innerHTML = "";
+  for (const t of tables) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "table-chip" + (t.id === selectedId ? " sel" : "");
+    chip.textContent = t.name;
+    chip.addEventListener("click", () => {
+      wrap.querySelectorAll(".table-chip").forEach(c => c.classList.remove("sel"));
+      chip.classList.add("sel");
+      onSelect(t);
+    });
+    wrap.appendChild(chip);
+  }
+}
+
+// ---------- pass and play names ----------
+
+export function renderPassNames(names) {
+  const wrap = $("pass-names");
+  wrap.innerHTML = "";
+  names.forEach((name, i) => {
+    const row = document.createElement("div");
+    row.className = "pass-name-row";
+    const input = document.createElement("input");
+    input.maxLength = 14;
+    input.value = name;
+    input.placeholder = "Player " + (i + 1);
+    input.addEventListener("input", () => { names[i] = input.value; });
+    row.appendChild(input);
+    if (names.length > 2) {
+      const rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "rm";
+      rm.textContent = "✕";
+      rm.addEventListener("click", () => { names.splice(i, 1); renderPassNames(names); });
+      row.appendChild(rm);
+    }
+    wrap.appendChild(row);
+  });
+  $("pass-add").classList.toggle("hidden", names.length >= 6);
+}
+
+export function showPassOverlay(name, penName) {
+  $("pass-who").textContent = name;
+  $("pass-pen").textContent = "Your pen: " + penName;
+  $("pass-overlay").classList.remove("hidden");
+}
+export function hidePassOverlay() { $("pass-overlay").classList.add("hidden"); }
 
 // ---------- pen picker ----------
 
@@ -104,7 +175,8 @@ function roundRect(g, x, y, w, h, r) {
 
 // ---------- lobby ----------
 
-export function renderLobby(players, myId, hostId, penName) {
+export function renderLobby(players, myId, hostId, opts = {}) {
+  const minPlayers = opts.minPlayers || 2;
   const ul = $("lobby-roster");
   ul.innerHTML = "";
   for (const p of players) {
@@ -122,13 +194,14 @@ export function renderLobby(players, myId, hostId, penName) {
   const readyBtn = $("lobby-ready");
   if (me) readyBtn.textContent = me.ready ? "Not ready" : "I'm ready";
   const isHost = myId === hostId;
-  const canStart = isHost && players.length >= 2 && players.every(p => p.ready || p.connected === false);
+  const canStart = isHost && players.length >= minPlayers && players.every(p => p.ready || p.connected === false);
   $("lobby-start").classList.toggle("hidden", !isHost);
   $("lobby-start").toggleAttribute("disabled", !canStart);
-  $("lobby-status").textContent =
-    players.length < 2 ? "Waiting for friends to join" :
-    canStart ? "All set!" :
-    isHost ? "Waiting for everyone to be ready" : "Waiting for the host to start";
+  const waitMsg = players.length < minPlayers
+    ? `Waiting for friends to join${minPlayers > 2 ? ` (needs ${minPlayers})` : ""}`
+    : canStart ? "All set!"
+    : isHost ? "Waiting for everyone to be ready" : "Waiting for the host to start";
+  $("lobby-status").textContent = (opts.subtitle ? opts.subtitle + " — " : "") + waitMsg;
 }
 
 // ---------- game hud ----------
@@ -136,7 +209,7 @@ export function renderLobby(players, myId, hostId, penName) {
 export function renderChips(players, currentId, aliveCheck) {
   $("chips").innerHTML = players.map(p => `
     <div class="chip${p.id === currentId ? " turn" : ""}${aliveCheck(p.id) ? "" : " dead"}">
-      <span class="dot" style="background:${chipColor(p.seat ?? players.indexOf(p))}"></span>${esc(p.name)}
+      <span class="dot" style="background:${p.team != null ? TEAM_COLORS[p.team] : chipColor(p.seat ?? players.indexOf(p))}"></span>${esc(p.name)}
     </div>`).join("");
 }
 

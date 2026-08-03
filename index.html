@@ -33,24 +33,24 @@
 <div class="screen" id="s-home">
   <div class="stack">
     <div class="logo">
-      <span class="logo-pen">✒️</span>
+      <div class="logo-mark" id="logo-mark"></div>
       <h1>PEN<br>FIGHT</h1>
     </div>
     <p class="tagline">The school bench classic. Flick your pen, clear the desk, last pen standing wins.</p>
     <div class="btn-col">
-      <button id="btn-practice" class="big-btn" type="button">Practice vs bots</button>
-      <button id="btn-pass" class="big-btn" type="button">Pass and play</button>
+      <button id="btn-practice" class="big-btn accent" type="button"><span id="ic-practice"></span> Practice vs bots</button>
+      <button id="btn-pass" class="big-btn" type="button"><span id="ic-pass"></span> Pass and play</button>
       <div class="row">
-        <button id="btn-academy" class="big-btn" type="button">🎯 Academy</button>
-        <button id="btn-daily" class="big-btn" type="button">📅 Daily</button>
+        <button id="btn-academy" class="big-btn" type="button"><span id="ic-academy"></span> Academy</button>
+        <button id="btn-daily" class="big-btn" type="button"><span id="ic-daily"></span> Daily</button>
       </div>
-      <button id="btn-create" class="big-btn accent" type="button">Create room</button>
-      <button id="btn-join" class="big-btn accent" type="button">Join room</button>
+      <button id="btn-create" class="big-btn blue" type="button"><span id="ic-create"></span> Create room</button>
+      <button id="btn-join" class="big-btn blue" type="button"><span id="ic-join"></span> Join room</button>
     </div>
     <p id="online-hint" class="hint hidden">Online play is not set up yet. Open README.md, add your Supabase keys to js/config.js.</p>
-    <p id="home-meta" class="hint"></p>
+    <div id="home-meta"></div>
   </div>
-  <button id="btn-settings" class="ghost-btn" type="button">⚙︎</button>
+  <button id="btn-settings" class="ghost-btn" type="button"><span id="ic-gear"></span></button>
 </div>
 
 <div class="screen hidden" id="s-mode">
@@ -157,9 +157,21 @@
   </div>
 </div>
 
+<div class="screen hidden" id="s-payout">
+  <div class="stack tall">
+    <h2 id="payout-title"></h2>
+    <p id="payout-sub" class="hint"></p>
+    <div id="payout-rows"></div>
+    <div class="btn-col">
+      <button id="payout-continue" class="big-btn accent" type="button">Next round</button>
+      <button id="payout-quit" class="ghost-btn" type="button">Leave the table</button>
+    </div>
+  </div>
+</div>
+
 <div class="screen hidden" id="s-victory">
   <div class="stack">
-    <div id="victory-emoji">🏆</div>
+    <div id="victory-icon"></div>
     <h2 id="victory-title"></h2>
     <p id="victory-sub"></p>
     <div class="btn-col">
@@ -184,10 +196,10 @@
 <div id="tutorial-overlay" class="hidden">
   <div class="pass-card">
     <h2>How to flick</h2>
-    <p class="tut-line">👆 Rest your hand anywhere. Only a fast swipe near YOUR pen fires.</p>
-    <p class="tut-line">💨 Swipe speed = power. Swipe direction = aim. Drag slowly to see the ghost line.</p>
-    <p class="tut-line">🌀 Flick through the pen's TIP and it spins, and spinning pens curve.</p>
-    <p class="tut-line">⚠️ Off the desk = out. That includes your own pen. Overconfidence, classic.</p>
+    <p class="tut-line"><span data-ic="target"></span>Rest your hand anywhere. Only a swipe near YOUR pen counts.</p>
+    <p class="tut-line"><span data-ic="play"></span>Fast flick fires instantly. Slow drag aims: the dotted line shows exactly where your pen will stop.</p>
+    <p class="tut-line"><span data-ic="flame"></span>Hit through the pen's TIP for spin. Spinning pens curve mid-flight.</p>
+    <p class="tut-line"><span data-ic="skull"></span>Off the desk means out, including your own pen. Watch the red X.</p>
     <button id="tutorial-close" class="big-btn accent" type="button">Samajh gaya!</button>
   </div>
 </div>

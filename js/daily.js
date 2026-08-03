@@ -43,7 +43,6 @@ export function dailyScore({ kos, turnsSurvived, won, mounts }) {
 }
 
 export function dailyShareText(day, { score, kos, turnsSurvived, won }) {
-  const skulls = "💀".repeat(Math.min(5, kos)) || "—";
-  const cap = won ? "🏆 last pen standing" : `survived ${turnsSurvived} turns`;
-  return `Pen Fight Daily #${day}\n🖊️ ${score.toLocaleString("en-IN")} pts · ${skulls} · ${cap}\nhttps://niketmishra.github.io/penfight/`;
+  const cap = won ? "last pen standing" : `survived ${turnsSurvived} turns`;
+  return `Pen Fight Daily #${day}\n${score.toLocaleString("en-IN")} pts · ${kos} KO${kos === 1 ? "" : "s"} · ${cap}\nhttps://niketmishra.github.io/penfight/`;
 }

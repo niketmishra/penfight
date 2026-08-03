@@ -27,6 +27,16 @@ export function createFx() {
     }
   }
 
+  // Tiny fading chalk streak behind fast pens.
+  function trail(x, y) {
+    push({
+      kind: "trail", world: true,
+      x, y, vx: 0, vy: 0,
+      life: 0.7, decay: 3.2,
+      size: 0.045
+    });
+  }
+
   function inkSplat(x, y, strength) {
     const n = Math.min(10, Math.round(2 + strength * 2));
     for (let i = 0; i < n; i++) {
@@ -90,6 +100,7 @@ export function createFx() {
       const s = toScreen(p.x, p.y);
       const r = p.size * eScale * (p.kind === "dust" ? 1 + (1 - p.life) * 1.6 : 1);
       if (p.kind === "dust") ctx.fillStyle = `rgba(190,150,105,${a * 0.5})`;
+      else if (p.kind === "trail") ctx.fillStyle = `rgba(244,240,230,${a * 0.4})`;
       else if (p.kind === "spark") ctx.fillStyle = `rgba(255,225,150,${a})`;
       else if (p.kind === "ink") ctx.fillStyle = `rgba(24,32,90,${a * 0.85})`;
       ctx.beginPath();
@@ -98,5 +109,5 @@ export function createFx() {
     }
   }
 
-  return { burst, inkSplat, confetti, update, draw, get count() { return parts.length; } };
+  return { burst, inkSplat, trail, confetti, update, draw, get count() { return parts.length; } };
 }

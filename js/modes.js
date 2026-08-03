@@ -7,7 +7,7 @@ export const MODES = [
     id: "classic",
     name: "Classic",
     desc: "Free for all. Last pen on the desk wins.",
-    icon: "⚔️",
+    icon: "swords",
     storm: true,
     minPlayers: 2, maxPlayers: 6,
     unlock: 0
@@ -16,7 +16,7 @@ export const MODES = [
     id: "teams",
     name: "Team Match",
     desc: "Bench vs bench. Friendly fire is on, school rules.",
-    icon: "🤝",
+    icon: "bench",
     teams: true, storm: true,
     minPlayers: 4, maxPlayers: 6,
     unlock: 3
@@ -25,7 +25,7 @@ export const MODES = [
     id: "compassbox",
     name: "Compass Box",
     desc: "Four inkwells in the desk. Sink them or shove them off.",
-    icon: "🕳️",
+    icon: "inkwell",
     holes: true, storm: false,
     minPlayers: 2, maxPlayers: 6,
     unlock: 5
@@ -34,7 +34,7 @@ export const MODES = [
     id: "academy",
     name: "Trick Shot Academy",
     desc: "One pen, limited flicks, impossible angles.",
-    icon: "🎯",
+    icon: "target",
     solo: true, targets: true,
     unlock: 0
   },
@@ -42,7 +42,7 @@ export const MODES = [
     id: "daily",
     name: "Daily Bawaal",
     desc: "Today's desk, everyone gets the same one. Score big, share it.",
-    icon: "📅",
+    icon: "calendar",
     solo: true, storm: true, scored: true,
     unlock: 0
   }

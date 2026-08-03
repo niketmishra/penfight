@@ -43,6 +43,7 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
     turnIdx: -1,
     currentId: null,
     order: [],
+    elimOrder: [],            // player ids in the order they died this round
     fallenThisTurn: [],
     skippedThisTurn: [],
     skipNext: new Set(),      // pens that miss their next turn (mounted)
@@ -272,8 +273,18 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
       alive.set(ev.ownerId, false);
       lastFall = ev.ownerId;
       state.fallenThisTurn.push(ev.ownerId);
+      if (!state.elimOrder.includes(ev.ownerId)) state.elimOrder.push(ev.ownerId);
     }
     emit("fall", { ...ev, player: byId.get(ev.ownerId) });
+  }
+
+  // Final ranking for the round: survivors first, then the fallen in
+  // reverse death order, then anyone who never fell (disconnects).
+  function positionsFinal() {
+    const live = aliveIds();
+    const fell = [...state.elimOrder].reverse();
+    const rest = players.map(p => p.id).filter(id => !live.includes(id) && !fell.includes(id));
+    return [...live, ...fell, ...rest];
   }
 
   // A mounted pen misses its next turn. Recorded during sim, shipped in the
@@ -290,7 +301,11 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
     for (const id of fallenIds) {
       if (byId.has(id) ? alive.get(id) : sim.getBody(id)) {
         const b = sim.getBody(id);
-        if (byId.has(id)) { alive.set(id, false); lastFall = id; }
+        if (byId.has(id)) {
+          alive.set(id, false);
+          lastFall = id;
+          if (!state.elimOrder.includes(id)) state.elimOrder.push(id);
+        }
         targetUids.delete(id);
         if (b) {
           const p = b.getPosition();
@@ -327,7 +342,7 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
     sim, players, byId, state, on, mode: modeCfg, table, holes,
     props: clutter.props, zones: clutter.zones,
     start, setTurn, advanceTurn, applyFlick, update, forceSettle, finish,
-    markDead, markSkip, stormInset, place, endPlacement, zoneFor,
+    markDead, markSkip, stormInset, place, endPlacement, zoneFor, positionsFinal,
     aliveIds, targetsLeft: () => targetUids.size,
     isAlive: id => Boolean(alive.get(id)),
     currentPlayer: () => byId.get(state.currentId)

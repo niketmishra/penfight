@@ -10,6 +10,7 @@ import * as sfx from "./sfx.js";
 import * as ui from "./screens.js";
 import { onlineConfigured } from "./net.js";
 import { canonicalize, isValidCode } from "./code.js";
+import { ICONS, icon } from "./icons.js";
 import { MODES, modeById, teamOfSeat, TEAM_NAMES } from "./modes.js";
 import { TABLES, tableById } from "./tables.js";
 import { commentate } from "./commentary.js";
@@ -20,6 +21,7 @@ import {
   addXp, levelFor, playerLevel, STICKERS, XP
 } from "./progress.js";
 import { setLanguage } from "./commentary.js";
+import { createSeries } from "./series.js";
 
 const $ = id => document.getElementById(id);
 
@@ -61,6 +63,16 @@ let botsCtl = null;
 const flow = { kind: null, modeId: "classic", tableId: "classroom", teamSize: 4 };
 let passNames = ["", ""];
 let lastPassNames = null;
+
+// The Daav: betting series state for FFA versus modes.
+let series = null;
+let seriesRoster = null;
+let seriesKind = null;       // "practice" | "pass" | "online"
+
+function seriesEligible(modeId) {
+  const m = modeById(modeId);
+  return !m.teams && !m.solo;
+}
 
 flick.previewCb = p => {
   if (p && match && p.uid != null && p.J != null) {
@@ -211,6 +223,8 @@ function matName(penId) {
 function wireMatch(m, players, opts = {}) {
   let killCamTurn = -1;
   let lastTeeterAt = 0;
+  const killsBy = new Map();   // striker uid -> KOs this round (garam pen)
+  renderer.clearGaram();
 
   m.on("hit", ev => {
     const loud = ev.a.speed > ev.b.speed ? ev.a : ev.b;
@@ -245,6 +259,16 @@ function wireMatch(m, players, opts = {}) {
       enterSlowMo(700);
     }
 
+    const striker = m.state.currentId;
+    if (ev.player && striker && ev.ownerId !== striker && ev.cause !== "storm") {
+      const n = (killsBy.get(striker) || 0) + 1;
+      killsBy.set(striker, n);
+      if (n === 2) {
+        renderer.setGaram(striker, true);
+        const sp = m.byId.get(striker);
+        ui.comment(`GARAM PEN! ${sp ? sp.name : ""} is on fire`);
+      }
+    }
     const who = ev.player ? ev.player.name : null;
     if (who) {
       const self = ev.ownerId === m.state.currentId;
@@ -352,9 +376,12 @@ function wireMatch(m, players, opts = {}) {
     setTimeout(() => {
       ui.toast(`+${gain} XP`);
       const after = playerLevel();
-      if (after > before) ui.comment(`LEVEL UP! Ab aap Level ${after} ho 🎉`);
+      if (after > before) ui.comment(`LEVEL UP! Ab aap Level ${after} ho`);
     }, 1700);
   });
+
+  m.on("start", () => refreshChips(m, players));
+  m.on("placing", () => refreshChips(m, players));
 
   // Match intro ceremony
   sfx.bell();
@@ -389,42 +416,64 @@ function localVictory({ winner, winnerTeam, myTeam }) {
     if (won) sfx.win();
     ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins!`,
       winner ? `${winner.name}'s bench cleared the desk.` : "",
-      won ? "🏆" : "💀");
+      won ? "trophy" : "skull");
   } else if (winner && winner.id === myId) {
     sfx.win();
-    ui.showVictory("You win!", `Your ${penById(winner.penId).name} owns the desk.`, "🏆");
+    ui.showVictory("You win!", `Your ${penById(winner.penId).name} owns the desk.`, "trophy");
   } else {
     ui.showVictory(winner ? `${winner.name} wins` : "Nobody wins",
       winner ? `${winner.name}'s ${penById(winner.penId).name} is the last one standing.` : "Everyone fell off. Chaos.",
-      winner && winner.id !== myId && !winner.isBot ? "🏆" : "💀");
+      winner && winner.id !== myId && !winner.isBot ? "trophy" : "skull");
   }
 }
 
 function startPractice() {
-  cleanupMatch();
-  maybeTutorial();
-  mode = "practice";
   const modeCfg = modeById(flow.modeId);
   const me = { id: myId, name: myName(), penId: store.pen, isBot: false, sticker: mySticker() };
   const botCount = modeCfg.teams ? flow.teamSize - 1 : store.bots;
   const diff = save.stats.matches < 3 ? "easy" : store.diff;   // mercy matches
   const bots = botRoster(botCount, store.pen, PENS, Math.random, diff);
-  const players = [me, ...bots];
-  players.forEach((p, i) => {
+  seriesRoster = [me, ...bots];
+  seriesRoster.forEach((p, i) => {
     p.seat = i;
     if (modeCfg.teams) p.team = teamOfSeat(i);
   });
+  series = seriesEligible(flow.modeId) ? createSeries(seriesRoster.map(p => p.id)) : null;
+  seriesKind = "practice";
+  startPracticeRound();
+}
+
+function startPracticeRound() {
+  cleanupMatch({ keepSeries: true });
+  maybeTutorial();
+  mode = "practice";
+  const modeCfg = modeById(flow.modeId);
+  let players = seriesRoster;
+  let anteInfo = null;
+  if (series) {
+    anteInfo = series.anteAll();
+    players = seriesRoster.filter(p => anteInfo.participants.includes(p.id));
+    seriesRoster.forEach(p => { p.balance = series.balance(p.id); });
+  }
   match = createMatch({ players, autoAdvance: true, mode: flow.modeId, tableId: flow.tableId });
   renderer.setTable(match.table, { holes: match.holes });
   wireMatch(match, players);
   botsCtl = attachBots(match);
-  const myTeam = modeCfg.teams ? teamOfSeat(0) : null;
-  match.on("over", ({ winner, winnerTeam }) => {
-    setTimeout(() => localVictory({ winner, winnerTeam, myTeam }), 900);
-  });
   match.on("placing", () => {
     placeBots(match);
     startPlacing(myId, 15000);
+  });
+  if (anteInfo) {
+    setTimeout(() => ui.comment(`Round ${series.roundNumber} · Daav ₹${anteInfo.stake}`), 1300);
+  }
+  const myTeam = modeCfg.teams ? teamOfSeat(0) : null;
+  match.on("over", ({ winner, winnerTeam }) => {
+    setTimeout(() => {
+      renderer.setHighlight(null);
+      flick.disarm();
+      if (series) showRoundPayout();
+      else localVictory({ winner, winnerTeam, myTeam });
+    }, 1100);
   });
   ui.show(null);
   ui.setTimer(null);
@@ -432,15 +481,50 @@ function startPractice() {
   match.start(undefined, undefined, { placement: true });
 }
 
+// Settle the round's money and show the standings table.
+function showRoundPayout(opts = {}) {
+  const positions = match.positionsFinal();
+  const deltas = series.settle(positions);
+  const meBroke = series.balance(myId) <= 0;
+  const localKind = seriesKind !== "online";
+  const done = series.over() || (seriesKind === "practice" && meBroke);
+  const rows = series.standings().map(s => {
+    const p = seriesRoster.find(q => q.id === s.id);
+    return {
+      name: p ? p.name : "?", balance: s.balance,
+      delta: deltas[s.id] ?? 0, isMe: s.id === myId, out: s.balance <= 0
+    };
+  });
+  const anyBroke = series.solvent().length < seriesRoster.length;
+  const onlineDone = seriesKind === "online" && anyBroke;
+  if (done || onlineDone) {
+    const w = seriesRoster.find(q => q.id === series.winnerId());
+    const iWonSeries = series.winnerId() === myId;
+    if (iWonSeries) { sfx.win(); renderer.confettiBurst(); addXp(XP.win); }
+    ui.showPayout({
+      title: iWonSeries ? "Poora desk aapka!" : meBroke ? "Kangal! Series over" : `${w ? w.name : "?"} took the money`,
+      sub: `Series over · ${series.roundIdx} round${series.roundIdx === 1 ? "" : "s"} played`,
+      rows, showContinue: false
+    });
+  } else {
+    ui.showPayout({
+      title: `Round ${series.roundIdx} results`,
+      sub: `Next: Round ${series.roundNumber} · Daav ₹${series.stake()}`,
+      rows,
+      continueLabel: opts.hostWaits ? "Waiting for host" : "Next round",
+      showContinue: !opts.hideContinue
+    });
+    if (opts.hostWaits) $("payout-continue").disabled = true;
+    else $("payout-continue").disabled = false;
+  }
+}
+
 function startPassPlay(names) {
-  cleanupMatch();
-  maybeTutorial();
-  mode = "pass";
   lastPassNames = [...names];
   const modeCfg = modeById(flow.modeId);
   const pens = [...PENS];
   shuffleArr(pens);
-  const players = names.map((nm, i) => ({
+  seriesRoster = names.map((nm, i) => ({
     id: "local-" + i,
     name: (nm || "").trim() || "Player " + (i + 1),
     penId: pens[i % pens.length].id,
@@ -448,12 +532,34 @@ function startPassPlay(names) {
     seat: i,
     team: modeCfg.teams ? teamOfSeat(i) : undefined
   }));
+  series = seriesEligible(flow.modeId) ? createSeries(seriesRoster.map(p => p.id)) : null;
+  seriesKind = "pass";
+  startPassRound();
+}
+
+function startPassRound() {
+  cleanupMatch({ keepSeries: true });
+  maybeTutorial();
+  mode = "pass";
+  const modeCfg = modeById(flow.modeId);
+  let players = seriesRoster;
+  let anteInfo = null;
+  if (series) {
+    anteInfo = series.anteAll();
+    players = seriesRoster.filter(p => anteInfo.participants.includes(p.id));
+    seriesRoster.forEach(p => { p.balance = series.balance(p.id); });
+  }
   match = createMatch({ players, autoAdvance: true, mode: flow.modeId, tableId: flow.tableId });
   renderer.setTable(match.table, { holes: match.holes });
   wireMatch(match, players, { passPlay: true });
   match.on("over", ({ winner, winnerTeam }) => {
     ui.hidePassOverlay();
-    setTimeout(() => localVictory({ winner, winnerTeam, myTeam: null }), 900);
+    setTimeout(() => {
+      renderer.setHighlight(null);
+      flick.disarm();
+      if (series) showRoundPayout();
+      else localVictory({ winner, winnerTeam, myTeam: null });
+    }, 1100);
   });
   match.on("placing", () => {
     // Everyone places in seat order, phone passes down the bench.
@@ -464,6 +570,9 @@ function startPassPlay(names) {
     const fp = match.byId.get(first);
     ui.showPassOverlay(fp.name, "Place your pen, then get ready");
   });
+  if (anteInfo) {
+    setTimeout(() => ui.comment(`Round ${series.roundNumber} · Daav ₹${anteInfo.stake}`), 1300);
+  }
   ui.show(null);
   ui.setTimer(null);
   $("emoji-bar").classList.add("hidden");
@@ -529,7 +638,7 @@ function startLevel(lv) {
         renderer.confettiBurst();
         ui.showVictory(`${lv.name} clear!`,
           `${"★".repeat(stars)}${"☆".repeat(3 - stars)} in ${match.state.flicksUsed} flick${match.state.flicksUsed === 1 ? "" : "s"}`,
-          "🎯");
+          "target");
         const next = LEVELS.find(l => l.id === lv.id + 1);
         if (next) {
           $("btn-rematch").textContent = "Next level";
@@ -539,7 +648,7 @@ function startLevel(lv) {
           academyNextAction = openAcademy;
         }
       } else {
-        ui.showVictory("Out of flicks", lv.hint, "😵");
+        ui.showVictory("Out of flicks", lv.hint, "skull");
         $("btn-rematch").textContent = "Retry";
         academyNextAction = () => startLevel(lv);
       }
@@ -594,7 +703,7 @@ function startDaily() {
       if (tally.won) sfx.win();
       ui.showVictory(`Daily Bawaal #${day}`,
         `Score ${score.toLocaleString("en-IN")} · Best ${best.toLocaleString("en-IN")}`,
-        tally.won ? "🏆" : "💀");
+        tally.won ? "trophy" : "skull");
       $("btn-share").classList.remove("hidden");
       $("btn-rematch").textContent = "Play again";
     }, 900);
@@ -666,6 +775,10 @@ async function startOnline(kind, code) {
     ui.setTimer(null);
     renderer.setHighlight(null);
     flick.disarm();
+    if (series && match) {
+      setTimeout(() => showRoundPayout({ hostWaits: !session.isHost }), 1100);
+      return;
+    }
     setTimeout(() => {
       const pen = winner ? penById(winner.penId) : null;
       const mode = modeById(session.modeId);
@@ -673,16 +786,16 @@ async function startOnline(kind, code) {
         const myTeam = teamOfSeat((session.roster.find(p => p.id === myId) || {}).seat || 0);
         if (winnerTeam === myTeam) {
           sfx.win();
-          ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins!`, "Your bench owns the desk.", "🏆");
+          ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins!`, "Your bench owns the desk.", "trophy");
         } else {
-          ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins`, "Their bench cleared yours out.", "🥲");
+          ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins`, "Their bench cleared yours out.", "skull");
         }
       } else if (winnerId === myId) {
         sfx.win();
-        ui.showVictory("You win!", pen ? `Your ${pen.name} owns the desk.` : "", "🏆");
+        ui.showVictory("You win!", pen ? `Your ${pen.name} owns the desk.` : "", "trophy");
       } else {
         ui.showVictory(`${winner ? winner.name : "Someone"} wins`,
-          pen ? `Their ${pen.name} is the last one standing.` : "", "🥲");
+          pen ? `Their ${pen.name} is the last one standing.` : "", "skull");
       }
       $("btn-rematch").textContent = "Rematch";
       $("btn-rematch").disabled = false;
@@ -696,6 +809,21 @@ function beginOnlineMatch({ order, layout, props = [], zones = [] }) {
     ...p, isBot: false,
     team: mode.teams ? teamOfSeat(p.seat) : undefined
   }));
+  // The Daav rides along: every client derives identical balances from the
+  // shared round results. A bankruptcy ends the online series.
+  if (seriesEligible(session.modeId)) {
+    const ids = players.map(p => p.id).sort().join("|");
+    if (!series || seriesKind !== "online" || series.rosterKey !== ids || series.over()
+      || series.solvent().length < players.length) {
+      series = createSeries(players.map(p => p.id));
+      series.rosterKey = ids;
+      seriesKind = "online";
+    }
+    seriesRoster = players;
+    const ante = series.anteAll();
+    players.forEach(p => { p.balance = series.balance(p.id); });
+    setTimeout(() => ui.comment(`Round ${series.roundNumber} · Daav ₹${ante.stake}`), 1300);
+  }
   match = createMatch({
     players, autoAdvance: false,
     mode: session.modeId, tableId: session.tableId,
@@ -718,9 +846,15 @@ function beginOnlineMatch({ order, layout, props = [], zones = [] }) {
   refreshChips(match, players);
 }
 
-function cleanupMatch() {
+function cleanupMatch(opts = {}) {
   if (botsCtl) { botsCtl.cancel(); botsCtl = null; }
-  if (session) { session.leave(); session = null; }
+  if (session && !opts.keepSession) { session.leave(); session = null; }
+  if (!opts.keepSeries) { series = null; seriesRoster = null; seriesKind = null; }
+  clearTimeout(placement.timer);
+  placement.active = false;
+  placement.seq = [];
+  placement.pendingId = null;
+  renderer.setPlacement(null);
   clearTimeout(demoTimer);
   match = null;
   mode = null;
@@ -763,8 +897,10 @@ function startDemo() {
 
 function updateHomeMeta() {
   const lv = levelFor(save.xp);
-  $("home-meta").textContent =
-    `Level ${lv.level} · ${save.xp.toLocaleString("en-IN")} XP · ${save.stats.wins} wins · ${save.stats.academyStars}★`;
+  const pct = Math.round((lv.into / lv.need) * 100);
+  $("home-meta").innerHTML = `<span class="level-chip"><b>Lv ${lv.level}</b>` +
+    `<span class="xp-track"><span class="xp-fill" style="display:block;height:100%;width:${pct}%"></span></span>` +
+    `${save.stats.wins} wins · ${save.stats.academyStars}\u2605</span>`;
 }
 
 function goHome() {
@@ -985,6 +1121,16 @@ $("lobby-code").addEventListener("click", async () => {
 
 $("btn-quit").addEventListener("click", goHome);
 
+$("payout-continue").addEventListener("click", () => {
+  if (seriesKind === "practice") startPracticeRound();
+  else if (seriesKind === "pass") startPassRound();
+  else if (seriesKind === "online" && session && session.isHost) {
+    $("payout-continue").disabled = true;
+    session.startGame();
+  }
+});
+$("payout-quit").addEventListener("click", goHome);
+
 $("btn-rematch").addEventListener("click", () => {
   if (mode === "practice") { startPractice(); return; }
   if (mode === "pass" && lastPassNames) { startPassPlay(lastPassNames); return; }
@@ -1055,9 +1201,28 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
+// Inject the SVG icon set into the static chrome.
+{
+  const put = (id, name) => { const el = $(id); if (el) el.innerHTML = ICONS[name] ? `<span class="icn">${ICONS[name]}</span>` : ""; };
+  const mark = $("logo-mark");
+  if (mark) mark.innerHTML = ICONS.logo;
+  put("ic-practice", "bot");
+  put("ic-pass", "phone");
+  put("ic-academy", "target");
+  put("ic-daily", "calendar");
+  put("ic-create", "crown");
+  put("ic-join", "wifi");
+  put("ic-gear", "gear");
+  document.querySelectorAll("[data-ic]").forEach(el => {
+    el.outerHTML = icon(el.dataset.ic);
+  });
+}
+
 // Debug handle for automated testing. Not referenced by game code.
 window.__pf = {
   get match() { return match; },
   get session() { return session; },
+  get timeScale() { return timeScale; },
+  get mode() { return mode; },
   renderer, flick, store
 };

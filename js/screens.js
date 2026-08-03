@@ -2,10 +2,11 @@
 
 import { PENS, statBars } from "./pens.js";
 import { TEAM_COLORS } from "./modes.js";
+import { ICONS } from "./icons.js";
 
 const $ = id => document.getElementById(id);
 
-const SCREENS = ["s-home", "s-mode", "s-pass", "s-picker", "s-join", "s-lobby", "s-academy", "s-victory"];
+const SCREENS = ["s-home", "s-mode", "s-pass", "s-picker", "s-join", "s-lobby", "s-academy", "s-payout", "s-victory"];
 const CHIP_COLORS = ["#3d7bff", "#ff5470", "#ffd166", "#4ade80", "#c084fc", "#fb923c"];
 
 export function show(name) {
@@ -25,7 +26,7 @@ export function buildModeCards(modes, selectedId, onSelect, playerLevel = 99) {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "mode-card" + (m.id === selectedId && open ? " sel" : "") + (open ? "" : " locked");
-    card.innerHTML = `<span class="mi">${m.icon}</span><span><h4>${esc(m.name)}</h4><p>${open ? esc(m.desc) : `<span class="lock-note">🔒 Unlocks at level ${m.unlock}</span>`}</p></span>`;
+    card.innerHTML = `<span class="mi">${ICONS[m.icon] || ""}</span><span><h4>${esc(m.name)}</h4><p>${open ? esc(m.desc) : `<span class="lock-note">🔒 Unlocks at level ${m.unlock}</span>`}</p></span>`;
     if (open) card.addEventListener("click", () => {
       wrap.querySelectorAll(".mode-card").forEach(c => c.classList.remove("sel"));
       card.classList.add("sel");
@@ -267,7 +268,7 @@ export function renderLobby(players, myId, hostId, opts = {}) {
 export function renderChips(players, currentId, aliveCheck) {
   $("chips").innerHTML = players.map(p => `
     <div class="chip${p.id === currentId ? " turn" : ""}${aliveCheck(p.id) ? "" : " dead"}">
-      <span class="dot" style="background:${p.team != null ? TEAM_COLORS[p.team] : chipColor(p.seat ?? players.indexOf(p))}"></span>${esc(p.name)}
+      <span class="dot" style="background:${p.team != null ? TEAM_COLORS[p.team] : chipColor(p.seat ?? players.indexOf(p))}"></span>${esc(p.name)}${p.balance != null ? ` <b class="chip-bal">₹${p.balance}</b>` : ""}
     </div>`).join("");
 }
 
@@ -315,8 +316,28 @@ export function floatEmoji(emoji) {
   setTimeout(() => el.remove(), 1900);
 }
 
-export function showVictory(title, sub, emoji) {
-  $("victory-emoji").textContent = emoji;
+// Daav standings between rounds and at series end.
+// rows: [{name, balance, delta, isMe, out}] ranked best first.
+export function showPayout({ title, sub, rows, continueLabel, showContinue = true }) {
+  $("payout-title").textContent = title;
+  $("payout-sub").textContent = sub || "";
+  $("payout-rows").innerHTML = rows.map((r, i) => `
+    <div class="payout-row${r.isMe ? " me" : ""}${r.out ? " out" : ""}">
+      <span class="pos">${i + 1}</span>
+      <span class="who">${esc(r.name)}${r.isMe ? " (you)" : ""}</span>
+      ${r.out ? '<span class="kangal">KANGAL</span>' : ""}
+      <span class="bal">₹${r.balance}</span>
+      <span class="delta ${r.delta > 0 ? "up" : r.delta < 0 ? "down" : ""}">${r.delta > 0 ? "+" : ""}${r.delta || 0}</span>
+    </div>`).join("");
+  $("payout-continue").textContent = continueLabel || "Next round";
+  $("payout-continue").classList.toggle("hidden", !showContinue);
+  show("s-payout");
+}
+
+export function showVictory(title, sub, iconName = "trophy") {
+  const el = $("victory-icon");
+  el.innerHTML = ICONS[iconName] || ICONS.trophy;
+  el.classList.toggle("lost", iconName === "skull");
   $("victory-title").textContent = title;
   $("victory-sub").textContent = sub;
   $("btn-share").classList.add("hidden");   // daily unhides it after

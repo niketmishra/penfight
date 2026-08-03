@@ -6,7 +6,7 @@
 import { tableById, tableHalf, edgeClearance } from "./tables.js";
 import { createFx } from "./fx.js";
 
-const MARGIN = 0.7;           // world units of floor visible around the table
+const MARGIN = 0.35;          // world units of floor visible around the table
 const SMOOTH_TAU = 0.045;     // seconds, render chase time constant
 const SNAP_TAU = 0.12;        // slower chase right after a snapshot correction
 
@@ -23,6 +23,7 @@ export function createRenderer(canvas) {
   let preview = null;
   let highlightUid = null;
   let highlightColor = "#ffd166";
+  const garam = new Set();      // pens on a kill streak glow hot
   let onTeeter = null;
   const teetering = new Set();
 
@@ -350,6 +351,10 @@ export function createRenderer(canvas) {
         teetering.delete(uid);
       }
 
+      const vel = body.getLinearVelocity();
+      const spd = Math.hypot(vel.x, vel.y);
+      if (spd > 6 && Math.random() < 0.55) fx.trail(x, y);
+      if (garam.has(uid)) drawGaram(d.x, d.y, data.pen, tNow);
       const lift = sim.airborneLift ? sim.airborneLift(uid) : 0;
       drawPen(data.pen, d.x, d.y, d.angle + wobble, 1 + lift * 0.2, 1, true, lift * 0.35, data.sticker);
     });
@@ -523,6 +528,20 @@ export function createRenderer(canvas) {
       ctx.fill("evenodd");
     }
     ctx.restore();
+  }
+
+  // Kill-streak heat: a slow orange shimmer under the pen.
+  function drawGaram(x, y, pen, tNow) {
+    const s = view.toScreen(x, y);
+    const r0 = (pen.length / 2 + 0.28) * eScale;
+    const pulse = 0.75 + 0.25 * Math.sin(tNow / 180);
+    const g = ctx.createRadialGradient(s.x, s.y, r0 * 0.2, s.x, s.y, r0);
+    g.addColorStop(0, `rgba(255,140,50,${0.22 * pulse})`);
+    g.addColorStop(1, "rgba(255,80,30,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, r0, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   function drawHighlight(x, y, pen, tNow) {
@@ -781,6 +800,8 @@ export function createRenderer(canvas) {
     confettiBurst() { fx.confetti(cw, ch, dpr); },
     shake(mag) { shakeMag = Math.min(16, shakeMag + mag); },
     setPreview(p) { preview = p; },
+    setGaram(uid, on) { if (on) garam.add(uid); else garam.delete(uid); },
+    clearGaram() { garam.clear(); },
     setHighlight(uid, color) { highlightUid = uid; if (color) highlightColor = color; },
     set teeterCb(cb) { onTeeter = cb; }
   };

@@ -1,7 +1,7 @@
 // Service worker. Versioned core cache, network-first for the shell so
 // updates land after one reload, cache fallback for offline practice.
 
-const CORE = "penfight-core-v2";
+const CORE = "penfight-core-v3";
 
 const SHELL = [
   ".",
@@ -23,6 +23,8 @@ const SHELL = [
   "js/levels.js",
   "js/daily.js",
   "js/progress.js",
+  "js/series.js",
+  "js/icons.js",
   "js/code.js",
   "js/config.js",
   "js/net.js",
@@ -58,7 +60,9 @@ self.addEventListener("fetch", e => {
   if (url.origin !== location.origin) return;   // fonts, supabase: straight to network
 
   e.respondWith(
-    fetch(req)
+    // no-cache: revalidate against the server so a deploy never mixes old
+    // and new modules (ETags make this cheap).
+    fetch(req, { cache: "no-cache" })
       .then(res => {
         const copy = res.clone();
         caches.open(CORE).then(c => c.put(req, copy));

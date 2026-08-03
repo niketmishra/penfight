@@ -10,6 +10,7 @@ import { modeById, decideWinner, teamOfSeat } from "./modes.js";
 import { tableById, genProps } from "./tables.js";
 
 const TURN_SECONDS = 20;
+const PLACEMENT_MS = 15000;      // pen placement window at round start
 const SETTLE_GRACE_MS = 15000;   // striker crashed mid-sim (covers one kill cam)
 const LEAVE_GRACE_MS = 10000;    // refresh window before a player counts as gone
 const MAX_PLAYERS = 6;
@@ -245,6 +246,9 @@ async function connect(code, me, amCreator) {
         s.hostId = payload.newHostId;
         emit("host", s.hostId);
         break;
+      case EV.PLACE:
+        emit("place", { from, x: payload.x, y: payload.y, angle: payload.angle });
+        break;
       case EV.EMOJI:
         emit("emoji", { from, emoji: payload.emoji });
         break;
@@ -363,7 +367,7 @@ async function connect(code, me, amCreator) {
     };
     send(EV.START, payload);
     emit("start", payload);
-    setTimeout(hostNextTurn, 1200);
+    setTimeout(hostNextTurn, PLACEMENT_MS + 1500);   // placement window first
   }
   s.startGame = startGame;
 
@@ -387,6 +391,7 @@ async function connect(code, me, amCreator) {
     }
   };
   s.sendEmoji = emoji => send(EV.EMOJI, { emoji });
+  s.sendPlace = (x, y, angle) => send(EV.PLACE, { x, y, angle });
   s.voteRematch = () => {
     rematchVotes.add(s.playerId);
     send(EV.REMATCH, {});

@@ -31,6 +31,19 @@ export function botRoster(count, excludePenId, penPool, rand = Math.random, diff
   }));
 }
 
+// Bots place quickly and a little defensively: near their default spot,
+// angled across the likely incoming line.
+export function placeBots(match, rand = Math.random) {
+  for (const p of match.players) {
+    if (!p.isBot) continue;
+    const zone = match.zoneFor(p.id);
+    if (!zone) continue;
+    const a = rand() * Math.PI * 2;
+    const r = rand() * zone.r * 0.55;
+    match.place(p.id, zone.cx + Math.cos(a) * r, zone.cy + Math.sin(a) * r, rand() * Math.PI * 2);
+  }
+}
+
 export function attachBots(match) {
   let timer = null;
   match.on("turn", ({ player }) => {

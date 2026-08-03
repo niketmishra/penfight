@@ -313,6 +313,7 @@ export function createRenderer(canvas) {
 
     if (sim.zones) for (const z of sim.zones) drawZone(z);
     if (stormInset > 0) drawStorm(tNow);
+    if (placementInfo) drawPlacement(tNow);
     if (sim.props) for (const p of sim.props) drawProp(p);
 
     // Fall animations, under the live pens (progress on scaled time)
@@ -459,6 +460,41 @@ export function createRenderer(canvas) {
 
   let stormInset = 0;
   function setStorm(inset) { stormInset = inset; }
+
+  let placementInfo = null;
+  function setPlacement(info) { placementInfo = info; }
+
+  function drawPlacement(tNow) {
+    const z = placementInfo.zone;
+    if (!z) return;
+    const c = view.toScreen(z.cx, z.cy);
+    const r = z.r * eScale;
+    const pulse = 0.75 + 0.25 * Math.sin(tNow / 260);
+    ctx.save();
+    const grad = ctx.createRadialGradient(c.x, c.y, r * 0.2, c.x, c.y, r);
+    grad.addColorStop(0, "rgba(242,177,53,0.05)");
+    grad.addColorStop(1, `rgba(242,177,53,${0.14 * pulse})`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = `rgba(242,177,53,${0.75 * pulse})`;
+    ctx.lineWidth = 2.5 * dpr;
+    ctx.setLineDash([10 * dpr, 8 * dpr]);
+    ctx.lineDashOffset = -(tNow / 40) % (18 * dpr);
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (placementInfo.deadlineTs) {
+      const left = Math.max(0, Math.ceil((placementInfo.deadlineTs - Date.now()) / 1000));
+      ctx.fillStyle = "rgba(244,240,230,0.95)";
+      ctx.font = `${16 * dpr}px "Archivo Black", sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText(String(left), c.x, c.y - r - 8 * dpr);
+    }
+    ctx.restore();
+  }
 
   function drawStorm(tNow) {
     const half = tableHalf(table);
@@ -740,7 +776,7 @@ export function createRenderer(canvas) {
   resize();
 
   return {
-    view, resize, draw, addFall, softenNextFrames, setTable, setStorm, drawPenSprite: drawPen,
+    view, resize, draw, addFall, softenNextFrames, setTable, setStorm, setPlacement, drawPenSprite: drawPen,
     fx, camFollow, camHome, killCam, introPulse,
     confettiBurst() { fx.confetti(cw, ch, dpr); },
     shake(mag) { shakeMag = Math.min(16, shakeMag + mag); },

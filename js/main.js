@@ -4,7 +4,7 @@
 import { createRenderer } from "./render.js";
 import { createFlick } from "./flick.js";
 import { createMatch } from "./game.js";
-import { attachBots, botRoster } from "./bots.js";
+import { attachBots, botRoster, placeBots } from "./bots.js";
 import { PENS, penById } from "./pens.js";
 import * as sfx from "./sfx.js";
 import * as ui from "./screens.js";
@@ -14,7 +14,7 @@ import { MODES, modeById, teamOfSeat, TEAM_NAMES } from "./modes.js";
 import { TABLES, tableById } from "./tables.js";
 import { commentate } from "./commentary.js";
 import { LEVELS, starsFor, levelUnlocked } from "./levels.js";
-import { dayNumber, dailySetup, dailyScore, dailyShareText } from "./daily.js";
+import { dayNumber, dailySetup, dailyScore, dailyShareText, mulberry32 } from "./daily.js";
 import {
   save, persist, setAcademyStars, setDailyBest, bumpStat,
   addXp, levelFor, playerLevel, STICKERS, XP
@@ -117,6 +117,90 @@ function loop(tNow) {
 const EMPTY_SIM = { eachPen() {}, table: null };
 requestAnimationFrame(loop);
 
+// ---------- placement phase ----------
+
+const placement = { active: false, playerId: null, deadline: 0, timer: null, seq: [], online: false };
+let placeDrag = null;
+let lastPlaceSend = 0;
+
+function startPlacing(playerId, ms, { online = false } = {}) {
+  if (!match) return;
+  placement.active = true;
+  placement.playerId = playerId;
+  placement.online = online;
+  placement.deadline = Date.now() + ms;
+  clearTimeout(placement.timer);
+  placement.timer = setTimeout(finishPlacing, ms);
+  renderer.setPlacement({ zone: match.zoneFor(playerId), deadlineTs: placement.deadline });
+  renderer.setHighlight(playerId, "#f2b135");
+  const p = match.byId.get(playerId);
+  ui.setTurnBanner(playerId === myId ? "Place your pen!" : `${p ? p.name : ""}, place your pen`, true);
+}
+
+function finishPlacing() {
+  clearTimeout(placement.timer);
+  placeDrag = null;
+  if (placement.seq.length) {
+    const next = placement.seq.shift();
+    const np = match ? match.byId.get(next) : null;
+    if (np) {
+      ui.showPassOverlay(np.name, "Place your pen, then get ready");
+      placement.pendingId = next;
+      return;
+    }
+  }
+  placement.active = false;
+  placement.playerId = null;
+  renderer.setPlacement(null);
+  if (match && !placement.online) match.endPlacement();
+  if (match && placement.online) match.endPlacement();   // stop accepting; host clock starts turns
+}
+
+canvas.addEventListener("pointerdown", e => {
+  if (!placement.active || !match || placement.playerId == null) return;
+  const pid = placement.playerId;
+  if (placement.online === false && pid !== myId && mode !== "pass") return;
+  const b = match.sim.getBody(pid);
+  if (!b) return;
+  const w = renderer.view.toWorld(e.clientX, e.clientY);
+  const pos = b.getPosition();
+  const d = Math.hypot(w.x - pos.x, w.y - pos.y);
+  const hl = penById(match.byId.get(pid).penId).length / 2;
+  if (d <= hl * 1.0) placeDrag = { mode: "move", pid };
+  else if (d <= hl + 0.85) placeDrag = { mode: "rotate", pid };
+  else {
+    const zone = match.zoneFor(pid);
+    if (zone && Math.hypot(w.x - zone.cx, w.y - zone.cy) <= zone.r) placeDrag = { mode: "move", pid };
+  }
+});
+canvas.addEventListener("pointermove", e => {
+  if (!placeDrag || !placement.active || !match) return;
+  const b = match.sim.getBody(placeDrag.pid);
+  if (!b) return;
+  const w = renderer.view.toWorld(e.clientX, e.clientY);
+  const pos = b.getPosition();
+  if (placeDrag.mode === "move") {
+    match.place(placeDrag.pid, w.x, w.y, b.getAngle());
+  } else {
+    match.place(placeDrag.pid, pos.x, pos.y, Math.atan2(w.y - pos.y, w.x - pos.x));
+  }
+  if (session && Date.now() - lastPlaceSend > 250) {
+    lastPlaceSend = Date.now();
+    const p2 = b.getPosition();
+    session.sendPlace(p2.x, p2.y, b.getAngle());
+  }
+});
+canvas.addEventListener("pointerup", () => {
+  if (placeDrag && session && match) {
+    const b = match.sim.getBody(placeDrag.pid);
+    if (b) {
+      const p = b.getPosition();
+      session.sendPlace(p.x, p.y, b.getAngle());
+    }
+  }
+  placeDrag = null;
+});
+
 // ---------- match wiring (both modes) ----------
 
 function matName(penId) {
@@ -202,6 +286,12 @@ function wireMatch(m, players, opts = {}) {
     refreshChips(m, players);
     renderer.camHome();
     timeScale = 1;
+    if (placement.active) {   // host clock beat the local placement timer
+      clearTimeout(placement.timer);
+      placement.active = false;
+      placement.seq = [];
+      renderer.setPlacement(null);
+    }
     const inset = m.stormInset(m.state.turnIdx);
     renderer.setStorm(inset);
     if (inset > 0 && !stormAnnounced) {
@@ -332,10 +422,14 @@ function startPractice() {
   match.on("over", ({ winner, winnerTeam }) => {
     setTimeout(() => localVictory({ winner, winnerTeam, myTeam }), 900);
   });
+  match.on("placing", () => {
+    placeBots(match);
+    startPlacing(myId, 15000);
+  });
   ui.show(null);
   ui.setTimer(null);
   $("emoji-bar").classList.add("hidden");
-  match.start();
+  match.start(undefined, undefined, { placement: true });
 }
 
 function startPassPlay(names) {
@@ -361,10 +455,19 @@ function startPassPlay(names) {
     ui.hidePassOverlay();
     setTimeout(() => localVictory({ winner, winnerTeam, myTeam: null }), 900);
   });
+  match.on("placing", () => {
+    // Everyone places in seat order, phone passes down the bench.
+    placement.seq = players.map(p => p.id);
+    placement.online = false;
+    const first = placement.seq.shift();
+    placement.pendingId = first;
+    const fp = match.byId.get(first);
+    ui.showPassOverlay(fp.name, "Place your pen, then get ready");
+  });
   ui.show(null);
   ui.setTimer(null);
   $("emoji-bar").classList.add("hidden");
-  match.start();
+  match.start(undefined, undefined, { placement: true });
 }
 
 function shuffleArr(arr) {
@@ -475,6 +578,10 @@ function startDaily() {
       && match.byId.has(ev.ownerId)) tally.kos += 1;
   });
   match.on("mount", ev => { if (ev.rider === myId) tally.mounts += 1; });
+  match.on("placing", () => {
+    placeBots(match, mulberry32(day * 31 + 7));   // same bot placements for everyone
+    startPlacing(myId, 15000);
+  });
   match.on("over", ({ winnerId }) => {
     tally.won = winnerId === myId;
     const score = dailyScore(tally);
@@ -495,7 +602,7 @@ function startDaily() {
   ui.show(null);
   ui.setTimer(null);
   $("emoji-bar").classList.add("hidden");
-  match.start(setup.layout, players.map(p => p.id));
+  match.start(setup.layout, players.map(p => p.id), { placement: true });
 }
 
 // ---------- online ----------
@@ -551,6 +658,9 @@ async function startOnline(kind, code) {
     renderer.softenNextFrames();
     refreshChips(match, match.players);
   });
+  session.on("place", p => {
+    if (match && p.from !== myId) match.place(p.from, p.x, p.y, p.angle);
+  });
   session.on("over", ({ winnerId, winnerTeam, winner }) => {
     turnDeadline = null;
     ui.setTimer(null);
@@ -598,12 +708,13 @@ function beginOnlineMatch({ order, layout, props = [], zones = [] }) {
     if (r.strikerId === myId) session.sendSettle(r);
   });
 
+  match.on("placing", () => startPlacing(myId, 15000, { online: true }));
   ui.show(null);
   $("emoji-bar").classList.remove("hidden");
   ui.setTurnBanner("Game on!", false);
   const orderIdx = new Map(order.map((id, i) => [id, i]));
   players.sort((a, b) => (orderIdx.get(a.id) ?? 9) - (orderIdx.get(b.id) ?? 9));
-  match.start(layout, order);
+  match.start(layout, order, { placement: true });
   refreshChips(match, players);
 }
 
@@ -770,7 +881,14 @@ $("pass-start").addEventListener("click", () => {
 
 $("pass-ready").addEventListener("click", () => {
   ui.hidePassOverlay();
-  if (!match || mode !== "pass" || match.state.phase !== "aiming") return;
+  if (!match || mode !== "pass") return;
+  if (placement.pendingId != null && match.state.phase === "placing") {
+    const pid = placement.pendingId;
+    placement.pendingId = null;
+    startPlacing(pid, 10000);
+    return;
+  }
+  if (match.state.phase !== "aiming") return;
   const cur = match.state.currentId;
   const body = match.sim.getBody(cur);
   const p = match.byId.get(cur);

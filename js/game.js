@@ -6,7 +6,10 @@
 import { createSim, PHYS } from "./physics.js";
 import { penById } from "./pens.js";
 import { modeById, decideWinner } from "./modes.js";
-import { tableById, tableHalf, holesFor, genProps, edgeClearance } from "./tables.js";
+import {
+  tableById, tableHalf, holesFor, genProps, edgeClearance,
+  placementZone, clampToZone, inPlacementZone
+} from "./tables.js";
 
 export function genLayout(players, table = tableById("classroom"), rand = Math.random) {
   // Pens in a ring around the center, tangential-ish, with jitter.
@@ -54,7 +57,7 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
   function on(ev, cb) { (listeners[ev] = listeners[ev] || []).push(cb); }
   function emit(ev, data) { for (const cb of listeners[ev] || []) cb(data); }
 
-  function start(layout, order) {
+  function start(layout, order, { placement = false } = {}) {
     const lay = layout || genLayout(players, table);
     for (const spot of lay) {
       const uid = spot.uid ?? spot.ownerId;
@@ -69,6 +72,42 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
     state.order = order || players.map(p => p.id);
     state.layout = lay;
     emit("start", { layout: lay, order: state.order });
+    if (placement) {
+      state.phase = "placing";
+      emit("placing", {});
+    } else if (autoAdvance) {
+      advanceTurn();
+    }
+  }
+
+  // ---- placement phase ----
+
+  function zoneFor(playerId) {
+    const spot = (state.layout || []).find(s => s.ownerId === playerId);
+    return spot ? placementZone(spot) : null;
+  }
+
+  // Set a pen inside its owner's zone. Position is clamped, so a slightly
+  // out-of-zone drag (or a remote player's message) lands legally.
+  function place(playerId, x, y, angle) {
+    if (state.phase !== "placing") return false;
+    const zone = zoneFor(playerId);
+    const body = sim.getBody(playerId);
+    if (!zone || !body) return false;
+    const c = clampToZone(zone, table, holes, x, y);
+    if (!inPlacementZone(zone, table, holes, c.x, c.y)) return false;
+    body.setTransform({ x: c.x, y: c.y }, angle);
+    body.setLinearVelocity({ x: 0, y: 0 });
+    body.setAngularVelocity(0);
+    emit("placed", { playerId, x: c.x, y: c.y, angle });
+    return true;
+  }
+
+  function endPlacement() {
+    if (state.phase !== "placing") return;
+    state.phase = "idle";
+    sim.resetSimClock();
+    emit("placementOver", {});
     if (autoAdvance) advanceTurn();
   }
 
@@ -96,6 +135,7 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
 
   function setTurn(playerId, meta = {}) {
     if (state.phase === "over") return;
+    if (state.phase === "placing") { state.phase = "idle"; emit("placementOver", {}); }
     state.turnIdx = meta.turnIdx != null ? meta.turnIdx : state.turnIdx + 1;
     state.currentId = playerId;
     state.phase = "aiming";
@@ -287,7 +327,7 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
     sim, players, byId, state, on, mode: modeCfg, table, holes,
     props: clutter.props, zones: clutter.zones,
     start, setTurn, advanceTurn, applyFlick, update, forceSettle, finish,
-    markDead, markSkip, stormInset,
+    markDead, markSkip, stormInset, place, endPlacement, zoneFor,
     aliveIds, targetsLeft: () => targetUids.size,
     isAlive: id => Boolean(alive.get(id)),
     currentPlayer: () => byId.get(state.currentId)

@@ -8,6 +8,7 @@ export const EV = {
   PEN_PICK: "pen_pick",
   READY: "ready",
   START: "start",
+  PLACE: "place",
   TURN_START: "turn_start",
   FLICK: "flick",
   SETTLE: "settle",
@@ -30,6 +31,7 @@ const shapes = {
     && (p.tableId === undefined || str(p.tableId))
     && (p.props === undefined || Array.isArray(p.props))
     && (p.zones === undefined || Array.isArray(p.zones)),
+  [EV.PLACE]: p => num(p.x) && num(p.y) && num(p.angle),
   [EV.TURN_START]: p => num(p.turnIdx) && str(p.playerId) && num(p.deadlineTs),
   [EV.FLICK]: p => num(p.turnIdx) && num(p.dx) && num(p.dy) && num(p.J) && num(p.off)
     && Array.isArray(p.preStates),

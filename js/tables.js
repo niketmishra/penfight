@@ -126,6 +126,48 @@ export function holesFor(table) {
   ];
 }
 
+// Placement: each player may set their pen anywhere inside a disc around
+// their default spot, as long as it stays on the desk and out of holes.
+export const PLACE_RADIUS = 1.5;
+
+export function placementZone(spot) {
+  return { cx: spot.x, cy: spot.y, r: PLACE_RADIUS };
+}
+
+export function inPlacementZone(zone, table, holes, x, y) {
+  if (Math.hypot(x - zone.cx, y - zone.cy) > zone.r) return false;
+  if (!tableContains(table, x, y)) return false;
+  if (edgeClearance(table, x, y) < 0.18) return false;
+  if (inHole(holes, x, y)) return false;
+  return true;
+}
+
+// Clamp a dragged point into the zone (and gently off the edge/holes).
+export function clampToZone(zone, table, holes, x, y) {
+  const dx = x - zone.cx, dy = y - zone.cy;
+  const d = Math.hypot(dx, dy);
+  if (d > zone.r) { x = zone.cx + (dx / d) * zone.r; y = zone.cy + (dy / d) * zone.r; }
+  // push inside the desk edge
+  const half = tableHalf(table);
+  if (table.shape === "round") {
+    const rr = Math.hypot(x, y);
+    const maxR = table.r - 0.2;
+    if (rr > maxR) { x = (x / rr) * maxR; y = (y / rr) * maxR; }
+  } else {
+    x = Math.max(-half.x + 0.2, Math.min(half.x - 0.2, x));
+    y = Math.max(-half.y + 0.2, Math.min(half.y - 0.2, y));
+  }
+  // nudge out of holes
+  const h = inHole(holes, x, y);
+  if (h) {
+    const hx = x - h.x, hy = y - h.y;
+    const hd = Math.hypot(hx, hy) || 0.001;
+    x = h.x + (hx / hd) * (h.r + 0.1);
+    y = h.y + (hy / hd) * (h.r + 0.1);
+  }
+  return { x, y };
+}
+
 export function inHole(holes, x, y) {
   for (const h of holes) {
     const dx = x - h.x, dy = y - h.y;

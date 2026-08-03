@@ -5,7 +5,7 @@ import { TEAM_COLORS } from "./modes.js";
 
 const $ = id => document.getElementById(id);
 
-const SCREENS = ["s-home", "s-mode", "s-pass", "s-picker", "s-join", "s-lobby", "s-victory"];
+const SCREENS = ["s-home", "s-mode", "s-pass", "s-picker", "s-join", "s-lobby", "s-academy", "s-victory"];
 const CHIP_COLORS = ["#3d7bff", "#ff5470", "#ffd166", "#4ade80", "#c084fc", "#fb923c"];
 
 export function show(name) {
@@ -84,6 +84,28 @@ export function showPassOverlay(name, penName) {
   $("pass-overlay").classList.remove("hidden");
 }
 export function hidePassOverlay() { $("pass-overlay").classList.add("hidden"); }
+
+// ---------- academy ----------
+
+export function buildAcademyGrid(levels, progress, unlockedFn, onPick) {
+  const wrap = $("academy-grid");
+  wrap.innerHTML = "";
+  let total = 0;
+  for (const lv of levels) {
+    const stars = progress[lv.id] || 0;
+    total += stars;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    const unlocked = unlockedFn(lv.id);
+    btn.className = "level-btn"
+      + (stars >= 3 ? " full" : stars > 0 ? " done" : "")
+      + (unlocked ? "" : " locked");
+    btn.innerHTML = `${lv.id}<span class="stars">${"★".repeat(stars)}${"☆".repeat(Math.max(0, 3 - stars)) }</span>`;
+    if (unlocked) btn.addEventListener("click", () => onPick(lv));
+    wrap.appendChild(btn);
+  }
+  $("academy-progress").textContent = `${total} / ${levels.length * 3} stars`;
+}
 
 // ---------- pen picker ----------
 
@@ -261,6 +283,7 @@ export function showVictory(title, sub, emoji) {
   $("victory-emoji").textContent = emoji;
   $("victory-title").textContent = title;
   $("victory-sub").textContent = sub;
+  $("btn-share").classList.add("hidden");   // daily unhides it after
   show("s-victory");
 }
 

@@ -40,6 +40,10 @@
     <div class="btn-col">
       <button id="btn-practice" class="big-btn" type="button">Practice vs bots</button>
       <button id="btn-pass" class="big-btn" type="button">Pass and play</button>
+      <div class="row">
+        <button id="btn-academy" class="big-btn" type="button">🎯 Academy</button>
+        <button id="btn-daily" class="big-btn" type="button">📅 Daily</button>
+      </div>
       <button id="btn-create" class="big-btn accent" type="button">Create room</button>
       <button id="btn-join" class="big-btn accent" type="button">Join room</button>
     </div>
@@ -133,12 +137,24 @@
   </div>
 </div>
 
+<div class="screen hidden" id="s-academy">
+  <div class="stack tall">
+    <h2>Trick Shot Academy</h2>
+    <p class="hint" id="academy-progress"></p>
+    <div id="academy-grid"></div>
+    <div class="row">
+      <button id="academy-back" class="ghost-btn" type="button">Back</button>
+    </div>
+  </div>
+</div>
+
 <div class="screen hidden" id="s-victory">
   <div class="stack">
     <div id="victory-emoji">🏆</div>
     <h2 id="victory-title"></h2>
     <p id="victory-sub"></p>
     <div class="btn-col">
+      <button id="btn-share" class="big-btn hidden" type="button">Share score</button>
       <button id="btn-rematch" class="big-btn accent" type="button">Rematch</button>
       <button id="btn-home" class="big-btn" type="button">Home</button>
     </div>

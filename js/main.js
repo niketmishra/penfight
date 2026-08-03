@@ -13,6 +13,9 @@ import { canonicalize, isValidCode } from "./code.js";
 import { MODES, modeById, teamOfSeat, TEAM_NAMES } from "./modes.js";
 import { TABLES, tableById } from "./tables.js";
 import { commentate } from "./commentary.js";
+import { LEVELS, starsFor, levelUnlocked } from "./levels.js";
+import { dayNumber, dailySetup, dailyScore, dailyShareText } from "./daily.js";
+import { save, setAcademyStars, setDailyBest, bumpStat } from "./progress.js";
 
 const $ = id => document.getElementById(id);
 
@@ -326,6 +329,125 @@ function shuffleArr(arr) {
   }
 }
 
+// ---------- trick shot academy ----------
+
+let currentLevel = null;
+let academyNextAction = null;
+
+function openAcademy() {
+  cleanupMatch();
+  ui.buildAcademyGrid(LEVELS, save.academy, id => levelUnlocked(id, save.academy), startLevel);
+  ui.show("s-academy");
+}
+
+function buildLevelLayout(lv, penId) {
+  return [
+    { ownerId: myId, penId, x: lv.player.x, y: lv.player.y, angle: lv.player.angle },
+    ...lv.targets.map((t, i) => ({
+      uid: "target-" + i, ownerId: null, penId: t.penId,
+      x: t.x, y: t.y, angle: t.angle, target: true
+    }))
+  ];
+}
+
+function startLevel(lv) {
+  cleanupMatch();
+  mode = "academy";
+  currentLevel = lv;
+  const penId = lv.pen || store.pen;
+  const players = [{ id: myId, name: myName(), penId, isBot: false, seat: 0 }];
+  match = createMatch({
+    players, autoAdvance: true, mode: "academy",
+    tableId: lv.tableId || "classroom", flickLimit: lv.flickLimit,
+    props: lv.props || [], zones: lv.zones || [], holes: lv.holes || []
+  });
+  renderer.setTable(match.table, { holes: match.holes });
+  wireMatch(match, players);
+  const banner = () => ui.setTurnBanner(
+    `${lv.name} · ${Math.max(0, lv.flickLimit - match.state.flicksUsed)} flicks`, true);
+  match.on("turn", banner);
+  match.on("flick", banner);
+  match.on("over", ({ won }) => {
+    setTimeout(() => {
+      renderer.setHighlight(null);
+      flick.disarm();
+      if (won) {
+        const stars = starsFor(lv, match.state.flicksUsed);
+        setAcademyStars(lv.id, stars);
+        sfx.win();
+        renderer.confettiBurst();
+        ui.showVictory(`${lv.name} clear!`,
+          `${"★".repeat(stars)}${"☆".repeat(3 - stars)} in ${match.state.flicksUsed} flick${match.state.flicksUsed === 1 ? "" : "s"}`,
+          "🎯");
+        const next = LEVELS.find(l => l.id === lv.id + 1);
+        if (next) {
+          $("btn-rematch").textContent = "Next level";
+          academyNextAction = () => startLevel(next);
+        } else {
+          $("btn-rematch").textContent = "Back to Academy";
+          academyNextAction = openAcademy;
+        }
+      } else {
+        ui.showVictory("Out of flicks", lv.hint, "😵");
+        $("btn-rematch").textContent = "Retry";
+        academyNextAction = () => startLevel(lv);
+      }
+    }, 700);
+  });
+  ui.show(null);
+  ui.setTimer(null);
+  $("emoji-bar").classList.add("hidden");
+  match.start(buildLevelLayout(lv, penId), [myId]);
+}
+
+// ---------- daily bawaal ----------
+
+let lastDaily = null;
+
+function startDaily() {
+  cleanupMatch();
+  mode = "daily";
+  const day = dayNumber();
+  const setup = dailySetup(day, myId, myName());
+  const players = setup.players;
+  match = createMatch({
+    players, autoAdvance: true, mode: "daily",
+    tableId: setup.tableId, props: setup.props, zones: setup.zones
+  });
+  renderer.setTable(match.table, { holes: match.holes });
+  wireMatch(match, players);
+  botsCtl = attachBots(match);
+  ui.toast(`Aaj ka pen: ${penById(setup.penOfDay).name}`);
+  const tally = { kos: 0, turnsSurvived: 0, mounts: 0, won: false };
+  match.on("turn", t => { if (t.playerId === myId) tally.turnsSurvived += 1; });
+  match.on("fall", ev => {
+    if (ev.ownerId && ev.ownerId !== myId && match.state.currentId === myId
+      && match.byId.has(ev.ownerId)) tally.kos += 1;
+  });
+  match.on("mount", ev => { if (ev.rider === myId) tally.mounts += 1; });
+  match.on("over", ({ winnerId }) => {
+    tally.won = winnerId === myId;
+    const score = dailyScore(tally);
+    const best = setDailyBest(day, score);
+    bumpStat("dailyPlays");
+    lastDaily = { day, score, best, tally };
+    setTimeout(() => {
+      renderer.setHighlight(null);
+      flick.disarm();
+      if (tally.won) sfx.win();
+      ui.showVictory(`Daily Bawaal #${day}`,
+        `Score ${score.toLocaleString("en-IN")} · Best ${best.toLocaleString("en-IN")}`,
+        tally.won ? "🏆" : "💀");
+      $("btn-share").classList.remove("hidden");
+      $("btn-rematch").textContent = "Play again";
+    }, 900);
+  });
+  ui.show(null);
+  ui.setTimer(null);
+  $("emoji-bar").classList.add("hidden");
+  match.start(setup.layout, players.map(p => p.id));
+}
+
 // ---------- online ----------
 
 async function startOnline(kind, code) {
@@ -603,13 +725,37 @@ $("btn-quit").addEventListener("click", () => { cleanupMatch(); ui.show("s-home"
 $("btn-rematch").addEventListener("click", () => {
   if (mode === "practice") { startPractice(); return; }
   if (mode === "pass" && lastPassNames) { startPassPlay(lastPassNames); return; }
+  if (mode === "academy" && academyNextAction) { academyNextAction(); return; }
+  if (mode === "daily") { startDaily(); return; }
   if (session) {
     session.voteRematch();
     $("btn-rematch").textContent = "Waiting for others";
     $("btn-rematch").disabled = true;
   }
 });
-$("btn-home").addEventListener("click", () => { cleanupMatch(); ui.show("s-home"); });
+$("btn-home").addEventListener("click", () => {
+  const wasAcademy = mode === "academy";
+  cleanupMatch();
+  if (wasAcademy) openAcademy();
+  else ui.show("s-home");
+});
+
+$("btn-academy").addEventListener("click", openAcademy);
+$("academy-back").addEventListener("click", () => ui.show("s-home"));
+$("btn-daily").addEventListener("click", startDaily);
+$("btn-share").addEventListener("click", async () => {
+  if (!lastDaily) return;
+  const text = dailyShareText(lastDaily.day, {
+    score: lastDaily.best, kos: lastDaily.tally.kos,
+    turnsSurvived: lastDaily.tally.turnsSurvived, won: lastDaily.tally.won
+  });
+  if (navigator.share) {
+    try { await navigator.share({ text }); } catch { /* dismissed */ }
+  } else if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+    ui.toast("Score copied");
+  }
+});
 
 document.querySelectorAll(".emoji-btn").forEach(btn => {
   let lastSent = 0;

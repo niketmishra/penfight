@@ -295,6 +295,34 @@ input:focus { border-color: var(--accent); }
 }
 .pass-card h2 { font-size: 30px; }
 
+/* ---------- academy ---------- */
+
+#academy-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  width: 100%;
+}
+.level-btn {
+  aspect-ratio: 1;
+  border-radius: 16px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-family: var(--display);
+  font-size: 17px;
+}
+.level-btn .stars { font-size: 10px; letter-spacing: 1px; }
+.level-btn.done { border-color: var(--accent); }
+.level-btn.full { border-color: var(--accent-2); }
+.level-btn.locked { opacity: 0.35; pointer-events: none; }
+
 /* ---------- lobby ---------- */
 
 .code-chip {

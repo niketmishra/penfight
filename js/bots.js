@@ -9,16 +9,16 @@ import { rayToEdge } from "./tables.js";
 
 const BOT_NAMES = ["Bunty", "Chintu", "Pinky", "Golu", "Mona"];
 
-export function botRoster(count, excludePenId, penPool) {
+export function botRoster(count, excludePenId, penPool, rand = Math.random) {
   const pens = penPool.filter(p => p.id !== excludePenId);
-  shuffle(pens);
+  shuffle(pens, rand);
   return Array.from({ length: count }, (_, i) => ({
     id: "bot-" + i,
     name: BOT_NAMES[i % BOT_NAMES.length],
     penId: (pens[i % pens.length] || penPool[0]).id,
     isBot: true,
-    sigma: 0.08 + Math.random() * 0.1,      // aim noise, radians
-    caution: 0.6 + Math.random() * 0.8      // self-preservation weight
+    sigma: 0.08 + rand() * 0.1,      // aim noise, radians
+    caution: 0.6 + rand() * 0.8      // self-preservation weight
   }));
 }
 
@@ -89,9 +89,9 @@ function gauss() {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
-function shuffle(arr) {
+function shuffle(arr, rand = Math.random) {
   for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rand() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
 }

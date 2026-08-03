@@ -26,10 +26,10 @@ export function genLayout(players, table = tableById("classroom"), rand = Math.r
   });
 }
 
-export function createMatch({ players, autoAdvance = true, mode = "classic", tableId = "classroom", flickLimit = 0, props = null, zones = null }) {
+export function createMatch({ players, autoAdvance = true, mode = "classic", tableId = "classroom", flickLimit = 0, props = null, zones = null, holes: holesOverride = null }) {
   const modeCfg = typeof mode === "string" ? modeById(mode) : mode;
   const table = tableById(tableId);
-  const holes = modeCfg.holes ? holesFor(table) : [];
+  const holes = holesOverride != null ? holesOverride : modeCfg.holes ? holesFor(table) : [];
   const clutter = props != null ? { props, zones: zones || [] }
     : modeCfg.targets ? { props: [], zones: [] }
     : genProps(table);

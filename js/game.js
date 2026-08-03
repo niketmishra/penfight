@@ -58,9 +58,11 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
     const lay = layout || genLayout(players, table);
     for (const spot of lay) {
       const uid = spot.uid ?? spot.ownerId;
+      const owner = byId.get(spot.ownerId);
       sim.addPen(penById(spot.penId), {
         uid, ownerId: spot.ownerId ?? null,
-        x: spot.x, y: spot.y, angle: spot.angle
+        x: spot.x, y: spot.y, angle: spot.angle,
+        sticker: owner ? owner.sticker : null
       });
       if (spot.target) targetUids.add(uid);
     }

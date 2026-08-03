@@ -3,6 +3,12 @@
 
 let ac = null;
 let unlocked = false;
+let muted = false;
+
+export function setMuted(m) {
+  if (m) ambience(false);   // stop the loop before the gate closes
+  muted = Boolean(m);
+}
 
 export function init() {
   if (!ac) {
@@ -18,7 +24,7 @@ function now() { return ac.currentTime; }
 // Pen on pen. Material changes the voice: metal rings, wood thuds,
 // plastic clicks. Volume scales with contact impulse.
 export function clack(impulse, material = "plastic") {
-  if (!unlocked || !ac) return;
+  if (!unlocked || !ac || muted) return;
   const vol = Math.min(0.7, 0.12 + impulse * 0.055);
   const t = now();
 
@@ -63,7 +69,7 @@ export function clack(impulse, material = "plastic") {
 
 // School bell: two-tone electric ring.
 export function bell() {
-  if (!unlocked || !ac) return;
+  if (!unlocked || !ac || muted) return;
   const t = now();
   for (let i = 0; i < 7; i++) {
     const t0 = t + i * 0.09;
@@ -81,7 +87,7 @@ export function bell() {
 
 // Crowd gasp for a pen teetering on the edge.
 export function oooh() {
-  if (!unlocked || !ac) return;
+  if (!unlocked || !ac || muted) return;
   const t = now();
   const nb = noiseBurst(0.5);
   const bp = ac.createBiquadFilter();
@@ -100,7 +106,7 @@ export function oooh() {
 
 // Kill-cam slow-mo entry.
 export function whoomp() {
-  if (!unlocked || !ac) return;
+  if (!unlocked || !ac || muted) return;
   const t = now();
   const osc = ac.createOscillator();
   const g = ac.createGain();
@@ -118,7 +124,7 @@ export function whoomp() {
 let ambNodes = null;
 let ambTimer = null;
 export function ambience(on) {
-  if (!unlocked || !ac) return;
+  if (!unlocked || !ac || muted) return;
   if (on && !ambNodes) {
     const src = ac.createBufferSource();
     const len = ac.sampleRate * 2;
@@ -164,7 +170,7 @@ export function ambience(on) {
 }
 
 export function whoosh(power = 1) {
-  if (!unlocked || !ac) return;
+  if (!unlocked || !ac || muted) return;
   const t = now();
   const nb = noiseBurst(0.16);
   const bp = ac.createBiquadFilter();
@@ -181,7 +187,7 @@ export function whoosh(power = 1) {
 }
 
 export function fall() {
-  if (!unlocked || !ac) return;
+  if (!unlocked || !ac || muted) return;
   const t = now();
   const osc = ac.createOscillator();
   const g = ac.createGain();
@@ -195,7 +201,7 @@ export function fall() {
 }
 
 export function win() {
-  if (!unlocked || !ac) return;
+  if (!unlocked || !ac || muted) return;
   const t = now();
   [523, 659, 784, 1047].forEach((f, i) => {
     const osc = ac.createOscillator();
@@ -212,7 +218,7 @@ export function win() {
 }
 
 export function tick() {
-  if (!unlocked || !ac) return;
+  if (!unlocked || !ac || muted) return;
   const t = now();
   const osc = ac.createOscillator();
   const g = ac.createGain();

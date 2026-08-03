@@ -48,7 +48,9 @@
       <button id="btn-join" class="big-btn accent" type="button">Join room</button>
     </div>
     <p id="online-hint" class="hint hidden">Online play is not set up yet. Open README.md, add your Supabase keys to js/config.js.</p>
+    <p id="home-meta" class="hint"></p>
   </div>
+  <button id="btn-settings" class="ghost-btn" type="button">⚙︎</button>
 </div>
 
 <div class="screen hidden" id="s-mode">
@@ -91,13 +93,20 @@
       <h3 id="pen-name"></h3>
       <p id="pen-inspo"></p>
       <p id="pen-trait"></p>
+      <p id="pen-quirk"></p>
       <div id="pen-stats"></div>
     </div>
+    <div id="sticker-row"></div>
     <div id="practice-opts" class="row hidden">
       <span>Opponents</span>
       <button id="bots-minus" class="step-btn" type="button">-</button>
       <b id="bots-count">3</b>
       <button id="bots-plus" class="step-btn" type="button">+</button>
+    </div>
+    <div id="diff-row" class="row hidden">
+      <button class="diff-btn" data-diff="easy" type="button">Easy</button>
+      <button class="diff-btn sel" data-diff="normal" type="button">Normal</button>
+      <button class="diff-btn" data-diff="ace" type="button">Ace</button>
     </div>
     <label class="name-row">Playing as
       <input id="name-input" maxlength="16" autocomplete="off" placeholder="your name">
@@ -158,6 +167,28 @@
       <button id="btn-rematch" class="big-btn accent" type="button">Rematch</button>
       <button id="btn-home" class="big-btn" type="button">Home</button>
     </div>
+  </div>
+</div>
+
+<div id="settings-overlay" class="hidden">
+  <div class="pass-card">
+    <h2>Settings</h2>
+    <label class="toggle-row"><span>Sound</span><input type="checkbox" id="set-sound"></label>
+    <label class="toggle-row"><span>Hinglish commentary</span><input type="checkbox" id="set-lang"></label>
+    <label class="toggle-row"><span>Reduce motion</span><input type="checkbox" id="set-motion"></label>
+    <p id="set-stats" class="hint"></p>
+    <button id="settings-close" class="big-btn accent" type="button">Done</button>
+  </div>
+</div>
+
+<div id="tutorial-overlay" class="hidden">
+  <div class="pass-card">
+    <h2>How to flick</h2>
+    <p class="tut-line">👆 Rest your hand anywhere. Only a fast swipe near YOUR pen fires.</p>
+    <p class="tut-line">💨 Swipe speed = power. Swipe direction = aim. Drag slowly to see the ghost line.</p>
+    <p class="tut-line">🌀 Flick through the pen's TIP and it spins, and spinning pens curve.</p>
+    <p class="tut-line">⚠️ Off the desk = out. That includes your own pen. Overconfidence, classic.</p>
+    <button id="tutorial-close" class="big-btn accent" type="button">Samajh gaya!</button>
   </div>
 </div>
 

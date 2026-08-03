@@ -99,11 +99,11 @@ async function connect(code, me, amCreator) {
   function hostAdd(p) {
     const existing = findP(p.id);
     if (existing) {
-      Object.assign(existing, { name: p.name, penId: p.penId, connected: true });
+      Object.assign(existing, { name: p.name, penId: p.penId, sticker: p.sticker || null, connected: true });
     } else {
       if (s.status !== "lobby" || s.players.length >= MAX_PLAYERS) return;
       s.players.push({
-        id: p.id, name: p.name, penId: p.penId,
+        id: p.id, name: p.name, penId: p.penId, sticker: p.sticker || null,
         seat: s.players.length, ready: p.id === s.hostId,
         connected: true, alive: true
       });
@@ -171,7 +171,7 @@ async function connect(code, me, amCreator) {
     const from = payload.from;
     switch (event) {
       case EV.HELLO:
-        if (s.isHost) hostAdd({ id: from, name: payload.name, penId: payload.penId });
+        if (s.isHost) hostAdd({ id: from, name: payload.name, penId: payload.penId, sticker: payload.sticker });
         break;
       case EV.ROSTER:
         if (payload.seq <= s.seq && s.players.length) return;   // stale
@@ -409,8 +409,8 @@ async function connect(code, me, amCreator) {
       if (status === "SUBSCRIBED") {
         clearTimeout(timeout);
         await channel.track({ playerId: s.playerId, name: me.name });
-        if (amCreator) hostAdd({ id: s.playerId, name: me.name, penId: me.penId });
-        else send(EV.HELLO, { name: me.name, penId: me.penId });
+        if (amCreator) hostAdd({ id: s.playerId, name: me.name, penId: me.penId, sticker: me.sticker });
+        else send(EV.HELLO, { name: me.name, penId: me.penId, sticker: me.sticker || null });
         resolve();
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         clearTimeout(timeout);

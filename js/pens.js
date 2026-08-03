@@ -12,6 +12,7 @@
 export const PENS = [
   {
     id: "ronalds045",
+    unlock: 0,
     quirk: { name: "Sarkari Pen", text: "Nothing special about it. That is the special thing. +5% everything." },
     flickMult: 1.05,
     name: "Ronalds 045",
@@ -24,6 +25,7 @@ export const PENS = [
   },
   {
     id: "trimaxx",
+    unlock: 6,
     quirk: { name: "Haathi", text: "Too heavy to flip. Cannot be launched airborne or mounted." },
     airborneImmune: true,
     name: "TriMaxx",
@@ -36,6 +38,7 @@ export const PENS = [
   },
   {
     id: "butterglide",
+    unlock: 0,
     quirk: { name: "Makkhan", text: "Ink slicks and sticky patches mean nothing to it." },
     zoneImmune: true,
     name: "Jello Butterglide",
@@ -48,6 +51,7 @@ export const PENS = [
   },
   {
     id: "pentronic",
+    unlock: 0,
     quirk: { name: "Patla Sa", text: "So slim it barely takes the hit. Incoming shoves lose 12%." },
     massMult: 1.12, flickMult: 1.12,
     name: "Zinc Pentronic",
@@ -60,6 +64,7 @@ export const PENS = [
   },
   {
     id: "writeometer",
+    unlock: 3,
     quirk: { name: "Lambu", text: "That reach. Flick it from one and a half arms away." },
     armMult: 1.5,
     name: "Glare Write-o-Meter",
@@ -72,6 +77,7 @@ export const PENS = [
   },
   {
     id: "copilotv6",
+    unlock: 2,
     quirk: { name: "Googly", text: "Spin it and it bends double. The trick shot pen." },
     magnusMult: 2,
     name: "Copilot V6",
@@ -84,6 +90,7 @@ export const PENS = [
   },
   {
     id: "sparkervictor",
+    unlock: 8,
     quirk: { name: "Loha", text: "Solid metal. Its hits send lighter pens flying, literally." },
     launcher: true,
     name: "Sparker Victor",
@@ -96,6 +103,7 @@ export const PENS = [
   },
   {
     id: "notraj621",
+    unlock: 4,
     quirk: { name: "Jugaadu", text: "Survives the chalk line one extra round. Last bench genes." },
     stormGrace: 1,
     name: "Notraj 621 HB",

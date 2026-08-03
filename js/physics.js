@@ -103,7 +103,7 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     return side;
   }
 
-  function addPen(pen, { uid, ownerId, x, y, angle }) {
+  function addPen(pen, { uid, ownerId, x, y, angle, sticker }) {
     const hl = pen.length / 2;
     const r = pen.dia / 2;
     const body = world.createBody({
@@ -121,7 +121,7 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     body.createFixture(new pl.Box(hl - r, r), opts);
     body.createFixture(new pl.Circle(new pl.Vec2(hl - r, 0), r), opts);
     body.createFixture(new pl.Circle(new pl.Vec2(-(hl - r), 0), r), opts);
-    body.setUserData({ uid, ownerId, penId: pen.id, pen });
+    body.setUserData({ uid, ownerId, penId: pen.id, pen, sticker: sticker || null });
     bodies.set(uid, body);
     stillTime = 0;
     return body;

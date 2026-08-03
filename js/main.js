@@ -15,7 +15,11 @@ import { TABLES, tableById } from "./tables.js";
 import { commentate } from "./commentary.js";
 import { LEVELS, starsFor, levelUnlocked } from "./levels.js";
 import { dayNumber, dailySetup, dailyScore, dailyShareText } from "./daily.js";
-import { save, setAcademyStars, setDailyBest, bumpStat } from "./progress.js";
+import {
+  save, persist, setAcademyStars, setDailyBest, bumpStat,
+  addXp, levelFor, playerLevel, STICKERS, XP
+} from "./progress.js";
+import { setLanguage } from "./commentary.js";
 
 const $ = id => document.getElementById(id);
 
@@ -32,9 +36,12 @@ const store = {
   get pen() { return localStorage.getItem("pf_pen") || PENS[0].id; },
   set pen(v) { localStorage.setItem("pf_pen", v); },
   get bots() { return Math.min(5, Math.max(1, Number(localStorage.getItem("pf_bots")) || 3)); },
-  set bots(v) { localStorage.setItem("pf_bots", String(v)); }
+  set bots(v) { localStorage.setItem("pf_bots", String(v)); },
+  get diff() { return localStorage.getItem("pf_diff") || "normal"; },
+  set diff(v) { localStorage.setItem("pf_diff", v); }
 };
 const myId = store.id;
+const mySticker = () => save.settings.sticker || null;
 
 // ---------- core objects ----------
 
@@ -123,7 +130,7 @@ function wireMatch(m, players, opts = {}) {
       : ev.a.penId && matName(ev.a.penId) === "wood" ? "wood"
       : ev.b.penId && matName(ev.b.penId) === "wood" ? "wood" : "plastic";
     sfx.clack(ev.impulse, mat);
-    renderer.shake(Math.min(10, ev.impulse * 1.6));
+    if (!save.settings.reduceMotion) renderer.shake(Math.min(10, ev.impulse * 1.6));
     renderer.fx.burst(ev.x, ev.y, ev.impulse, ev.impulse > 3 ? "spark" : "dust");
     sfx.vibrate(Math.min(60, Math.round(ev.impulse * 10)));
     if (ev.impulse > 4.2 && loud.speed > 8) ui.comment(commentate("bigHit"));
@@ -142,7 +149,7 @@ function wireMatch(m, players, opts = {}) {
     renderer.fx.inkSplat(ev.x, ev.y, 2.2);
 
     // Kill cam: once per turn, only while the sim is actually running.
-    if (m.state.phase === "sim" && m.state.turnIdx !== killCamTurn) {
+    if (m.state.phase === "sim" && m.state.turnIdx !== killCamTurn && !save.settings.reduceMotion) {
       killCamTurn = m.state.turnIdx;
       renderer.killCam(ev.x, ev.y);
       sfx.whoomp();
@@ -224,6 +231,36 @@ function wireMatch(m, players, opts = {}) {
     ui.comment(commentate("teeter", { name: ev.ownerId && m.byId.get(ev.ownerId) ? m.byId.get(ev.ownerId).name : "" }));
   };
 
+  // Lifetime stats + XP (pass-and-play hotseat and academy award elsewhere)
+  const xpTally = { kos: 0, selfKo: false, mounts: 0 };
+  m.on("fall", ev => {
+    if (!m.byId.has(ev.ownerId)) return;
+    if (ev.ownerId !== myId && m.state.currentId === myId) xpTally.kos += 1;
+    if (ev.ownerId === myId && m.state.currentId === myId && ev.cause !== "storm") xpTally.selfKo = true;
+    if (ev.cause === "hole" && m.state.currentId === myId && ev.ownerId !== myId) bumpStat("holeSinks");
+  });
+  m.on("mount", ev => { if (ev.rider === myId) xpTally.mounts += 1; });
+  m.on("over", ({ winnerId, winnerTeam }) => {
+    if (!["practice", "online", "daily"].includes(mode)) return;
+    const me = m.byId.get(myId);
+    if (!me) return;
+    const before = playerLevel();
+    const iWon = winnerId === myId || (winnerTeam != null && me.team === winnerTeam);
+    bumpStat("matches");
+    if (iWon) bumpStat("wins");
+    bumpStat("kos", xpTally.kos);
+    if (xpTally.selfKo) bumpStat("selfKos");
+    bumpStat("mounts", xpTally.mounts);
+    let gain = XP.match + xpTally.kos * XP.ko + xpTally.mounts * XP.mount + (iWon ? XP.win : 0);
+    if (mode === "daily") gain += XP.daily;
+    addXp(gain);
+    setTimeout(() => {
+      ui.toast(`+${gain} XP`);
+      const after = playerLevel();
+      if (after > before) ui.comment(`LEVEL UP! Ab aap Level ${after} ho 🎉`);
+    }, 1700);
+  });
+
   // Match intro ceremony
   sfx.bell();
   sfx.ambience(true);
@@ -270,11 +307,13 @@ function localVictory({ winner, winnerTeam, myTeam }) {
 
 function startPractice() {
   cleanupMatch();
+  maybeTutorial();
   mode = "practice";
   const modeCfg = modeById(flow.modeId);
-  const me = { id: myId, name: myName(), penId: store.pen, isBot: false };
+  const me = { id: myId, name: myName(), penId: store.pen, isBot: false, sticker: mySticker() };
   const botCount = modeCfg.teams ? flow.teamSize - 1 : store.bots;
-  const bots = botRoster(botCount, store.pen, PENS);
+  const diff = save.stats.matches < 3 ? "easy" : store.diff;   // mercy matches
+  const bots = botRoster(botCount, store.pen, PENS, Math.random, diff);
   const players = [me, ...bots];
   players.forEach((p, i) => {
     p.seat = i;
@@ -296,6 +335,7 @@ function startPractice() {
 
 function startPassPlay(names) {
   cleanupMatch();
+  maybeTutorial();
   mode = "pass";
   lastPassNames = [...names];
   const modeCfg = modeById(flow.modeId);
@@ -352,10 +392,11 @@ function buildLevelLayout(lv, penId) {
 
 function startLevel(lv) {
   cleanupMatch();
+  maybeTutorial();
   mode = "academy";
   currentLevel = lv;
   const penId = lv.pen || store.pen;
-  const players = [{ id: myId, name: myName(), penId, isBot: false, seat: 0 }];
+  const players = [{ id: myId, name: myName(), penId, isBot: false, seat: 0, sticker: mySticker() }];
   match = createMatch({
     players, autoAdvance: true, mode: "academy",
     tableId: lv.tableId || "classroom", flickLimit: lv.flickLimit,
@@ -373,7 +414,9 @@ function startLevel(lv) {
       flick.disarm();
       if (won) {
         const stars = starsFor(lv, match.state.flicksUsed);
+        const prevStars = save.academy[lv.id] || 0;
         setAcademyStars(lv.id, stars);
+        if (stars > prevStars) addXp((stars - prevStars) * XP.academyStar);
         sfx.win();
         renderer.confettiBurst();
         ui.showVictory(`${lv.name} clear!`,
@@ -406,9 +449,11 @@ let lastDaily = null;
 
 function startDaily() {
   cleanupMatch();
+  maybeTutorial();
   mode = "daily";
   const day = dayNumber();
   const setup = dailySetup(day, myId, myName());
+  setup.players[0].sticker = mySticker();
   const players = setup.players;
   match = createMatch({
     players, autoAdvance: true, mode: "daily",
@@ -454,7 +499,7 @@ async function startOnline(kind, code) {
   cleanupMatch();
   mode = "online";
   const me = {
-    playerId: myId, name: myName(), penId: store.pen,
+    playerId: myId, name: myName(), penId: store.pen, sticker: mySticker(),
     modeId: kind === "create" ? flow.modeId : undefined,
     tableId: kind === "create" ? flow.tableId : undefined
   };
@@ -560,7 +605,9 @@ function beginOnlineMatch({ order, layout, props = [], zones = [] }) {
 function cleanupMatch() {
   if (botsCtl) { botsCtl.cancel(); botsCtl = null; }
   if (session) { session.leave(); session = null; }
+  clearTimeout(demoTimer);
   match = null;
+  mode = null;
   turnDeadline = null;
   timeScale = 1;
   flick.disarm();
@@ -570,6 +617,81 @@ function cleanupMatch() {
   sfx.ambience(false);
   ui.setTimer(null);
 }
+
+// ---------- attract mode: bots play behind the home screen ----------
+
+let demoTimer = null;
+
+function startDemo() {
+  if (session || (match && mode !== "demo")) return;
+  clearTimeout(demoTimer);
+  mode = "demo";
+  const bots = botRoster(3 + Math.floor(Math.random() * 3), null, PENS);
+  bots.forEach((p, i) => { p.seat = i; });
+  match = createMatch({
+    players: bots, autoAdvance: true,
+    mode: { ...modeById("classic"), storm: false }
+  });
+  renderer.setTable(match.table, { holes: match.holes });
+  renderer.setHighlight(null);
+  match.on("fall", ev => renderer.addFall(ev, penById(ev.penId)));
+  match.on("hit", ev => renderer.fx.burst(ev.x, ev.y, Math.min(2, ev.impulse), "dust"));
+  botsCtl = attachBots(match);
+  match.on("over", () => {
+    demoTimer = setTimeout(() => {
+      if (mode === "demo") { match = null; startDemo(); }
+    }, 2200);
+  });
+  match.start();
+}
+
+function updateHomeMeta() {
+  const lv = levelFor(save.xp);
+  $("home-meta").textContent =
+    `Level ${lv.level} · ${save.xp.toLocaleString("en-IN")} XP · ${save.stats.wins} wins · ${save.stats.academyStars}★`;
+}
+
+function goHome() {
+  cleanupMatch();
+  updateHomeMeta();
+  ui.show("s-home");
+  startDemo();
+}
+
+// ---------- tutorial + settings ----------
+
+function maybeTutorial() {
+  if (!save.seenTutorial) $("tutorial-overlay").classList.remove("hidden");
+}
+$("tutorial-close").addEventListener("click", () => {
+  $("tutorial-overlay").classList.add("hidden");
+  save.seenTutorial = true;
+  persist();
+});
+
+$("btn-settings").addEventListener("click", () => {
+  $("set-sound").checked = save.settings.sound;
+  $("set-lang").checked = save.settings.lang !== "en";
+  $("set-motion").checked = save.settings.reduceMotion;
+  $("set-stats").textContent =
+    `Matches ${save.stats.matches} · Wins ${save.stats.wins} · KOs ${save.stats.kos} · Self-KOs ${save.stats.selfKos} · Chadhai ${save.stats.mounts}`;
+  $("settings-overlay").classList.remove("hidden");
+});
+$("settings-close").addEventListener("click", () => $("settings-overlay").classList.add("hidden"));
+$("set-sound").addEventListener("change", e => {
+  save.settings.sound = e.target.checked;
+  persist();
+  sfx.setMuted(!save.settings.sound);
+});
+$("set-lang").addEventListener("change", e => {
+  save.settings.lang = e.target.checked ? "hi" : "en";
+  persist();
+  setLanguage(save.settings.lang);
+});
+$("set-motion").addEventListener("change", e => {
+  save.settings.reduceMotion = e.target.checked;
+  persist();
+});
 
 // ---------- screen flow ----------
 
@@ -590,10 +712,13 @@ $("btn-join").addEventListener("click", () => {
 
 function openModeSelect(kind) {
   flow.kind = kind;
+  const lvl = playerLevel();
   const list = MODES.filter(m => !m.solo);
-  if (!list.some(m => m.id === flow.modeId)) flow.modeId = "classic";
-  ui.buildModeCards(list, flow.modeId, m => { flow.modeId = m.id; syncModeRows(); });
-  ui.buildTableChips(TABLES, flow.tableId, t => { flow.tableId = t.id; });
+  const locked = id => (list.find(m => m.id === id) || {}).unlock > lvl;
+  if (!list.some(m => m.id === flow.modeId) || locked(flow.modeId)) flow.modeId = "classic";
+  if ((tableById(flow.tableId).unlock || 0) > lvl) flow.tableId = "classroom";
+  ui.buildModeCards(list, flow.modeId, m => { flow.modeId = m.id; syncModeRows(); }, lvl);
+  ui.buildTableChips(TABLES, flow.tableId, t => { flow.tableId = t.id; }, lvl);
   $("mode-title").textContent =
     kind === "create" ? "Set the room rules" :
     kind === "pass" ? "One phone, full bench" : "Pick your battle";
@@ -651,11 +776,26 @@ function openPicker(kind) {
   pickerMode = kind;
   const m = modeById(flow.modeId);
   $("practice-opts").classList.toggle("hidden", kind !== "practice" || Boolean(m.teams));
+  $("diff-row").classList.toggle("hidden", kind !== "practice");
+  document.querySelectorAll(".diff-btn").forEach(b =>
+    b.classList.toggle("sel", b.dataset.diff === store.diff));
   $("bots-count").textContent = store.bots;
   $("name-input").value = store.name;
-  ui.buildPicker(store.pen, pen => { store.pen = pen.id; });
+  ui.buildPicker(store.pen, pen => { store.pen = pen.id; }, playerLevel());
+  ui.buildStickerRow(STICKERS, save.settings.sticker || "none", playerLevel(), st => {
+    save.settings.sticker = st.id === "none" ? null : st.id;
+    persist();
+  });
   ui.show("s-picker");
 }
+
+document.querySelectorAll(".diff-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".diff-btn").forEach(b => b.classList.remove("sel"));
+    btn.classList.add("sel");
+    store.diff = btn.dataset.diff;
+  });
+});
 
 $("bots-minus").addEventListener("click", () => {
   store.bots = Math.max(1, store.bots - 1);
@@ -679,7 +819,7 @@ $("picker-go").addEventListener("click", async () => {
     await startOnline(pickerMode === "create" ? "create" : "join", pendingJoinCode);
   } catch (err) {
     ui.toast(err.message || "Could not connect", true);
-    ui.show("s-home");
+    goHome();
   } finally {
     btn.disabled = false;
     btn.textContent = "Let's go";
@@ -707,7 +847,7 @@ $("lobby-ready").addEventListener("click", () => {
   session.setReady(me ? !me.ready : true);
 });
 $("lobby-start").addEventListener("click", () => session && session.startGame());
-$("lobby-leave").addEventListener("click", () => { cleanupMatch(); ui.show("s-home"); });
+$("lobby-leave").addEventListener("click", goHome);
 $("lobby-code").addEventListener("click", async () => {
   if (!session) return;
   const url = location.origin + location.pathname + "?join=" + session.code;
@@ -720,7 +860,7 @@ $("lobby-code").addEventListener("click", async () => {
   }
 });
 
-$("btn-quit").addEventListener("click", () => { cleanupMatch(); ui.show("s-home"); });
+$("btn-quit").addEventListener("click", goHome);
 
 $("btn-rematch").addEventListener("click", () => {
   if (mode === "practice") { startPractice(); return; }
@@ -735,9 +875,8 @@ $("btn-rematch").addEventListener("click", () => {
 });
 $("btn-home").addEventListener("click", () => {
   const wasAcademy = mode === "academy";
-  cleanupMatch();
-  if (wasAcademy) openAcademy();
-  else ui.show("s-home");
+  if (wasAcademy) { cleanupMatch(); openAcademy(); }
+  else goHome();
 });
 
 $("btn-academy").addEventListener("click", openAcademy);
@@ -777,12 +916,16 @@ document.addEventListener("pointerdown", function unlock() {
 
 // Invite links: ?join=CODE
 const joinParam = new URLSearchParams(location.search).get("join");
+sfx.setMuted(!save.settings.sound);
+setLanguage(save.settings.lang);
+updateHomeMeta();
 if (joinParam && onlineConfigured) {
   pendingJoinCode = canonicalize(joinParam);
   $("code-input").value = pendingJoinCode;
   ui.show("s-join");
 } else {
   ui.show("s-home");
+  startDemo();
 }
 
 if ("serviceWorker" in navigator) {

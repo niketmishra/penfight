@@ -9,7 +9,15 @@ import { rayToEdge } from "./tables.js";
 
 const BOT_NAMES = ["Bunty", "Chintu", "Pinky", "Golu", "Mona"];
 
-export function botRoster(count, excludePenId, penPool, rand = Math.random) {
+// Difficulty shapes aim noise, self-preservation and power judgement.
+const DIFFS = {
+  easy: { sigma: [0.2, 0.14], caution: [1.2, 0.8], pow: [1.0, 0.5] },
+  normal: { sigma: [0.08, 0.1], caution: [0.6, 0.8], pow: [1.15, 0.25] },
+  ace: { sigma: [0.025, 0.045], caution: [0.5, 0.4], pow: [1.18, 0.1] }
+};
+
+export function botRoster(count, excludePenId, penPool, rand = Math.random, difficulty = "normal") {
+  const d = DIFFS[difficulty] || DIFFS.normal;
   const pens = penPool.filter(p => p.id !== excludePenId);
   shuffle(pens, rand);
   return Array.from({ length: count }, (_, i) => ({
@@ -17,8 +25,9 @@ export function botRoster(count, excludePenId, penPool, rand = Math.random) {
     name: BOT_NAMES[i % BOT_NAMES.length],
     penId: (pens[i % pens.length] || penPool[0]).id,
     isBot: true,
-    sigma: 0.08 + rand() * 0.1,      // aim noise, radians
-    caution: 0.6 + rand() * 0.8      // self-preservation weight
+    sigma: d.sigma[0] + rand() * d.sigma[1],      // aim noise, radians
+    caution: d.caution[0] + rand() * d.caution[1],
+    powBase: d.pow[0], powSpread: d.pow[1]
   }));
 }
 
@@ -73,7 +82,8 @@ function takeTurn(match, bot) {
   // Aiming through the target, not just at it, is what ends duels.
   const a = PHYS.fricDecel * myPen.linDampMult * (table.frictionMult || 1);
   const carry = Math.min(3.5, rayToEdge(table, best.x, best.y, dx, dy) * 0.8 + 0.5);
-  const vNeed = Math.sqrt(2 * a * (best.dist + carry)) * (1.15 + Math.random() * 0.25);
+  const powB = bot.powBase || 1.15, powS = bot.powSpread ?? 0.25;
+  const vNeed = Math.sqrt(2 * a * (best.dist + carry)) * (powB + Math.random() * powS);
   const J = Math.min(J_MAX, Math.max(J_MAX * 0.2, vNeed * myPen.mass));
 
   match.applyFlick(bot.id, {

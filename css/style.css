@@ -295,6 +295,73 @@ input:focus { border-color: var(--accent); }
 }
 .pass-card h2 { font-size: 30px; }
 
+/* ---------- meta: stickers, difficulty, settings ---------- */
+
+#sticker-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.sticker-chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.sticker-chip.sel { border-color: var(--accent-2); color: var(--ink); }
+.sticker-chip.locked { opacity: 0.4; pointer-events: none; }
+
+.diff-btn {
+  flex: 1;
+  padding: 9px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--dim);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+.diff-btn.sel { border-color: var(--accent-2); color: var(--ink); }
+
+.pen-card .lock-tag {
+  font-size: 10px;
+  color: var(--accent-2);
+  font-family: var(--body);
+  font-weight: 700;
+}
+.pen-card.locked canvas { filter: grayscale(1) brightness(0.5); }
+.mode-card .lock-note { color: var(--accent-2); font-weight: 700; }
+
+#btn-settings {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 10px);
+  right: 12px;
+  font-size: 17px;
+  padding: 8px 12px;
+}
+#settings-overlay, #tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 9, 16, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 20px;
+}
+.toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 230px;
+  font-size: 15px;
+}
+.toggle-row input { width: 20px; height: 20px; accent-color: var(--accent); }
+.tut-line { font-size: 14px; margin: 4px 0; max-width: 300px; text-align: left; }
+#home-meta { letter-spacing: 0.3px; }
+
 /* ---------- academy ---------- */
 
 #academy-grid {

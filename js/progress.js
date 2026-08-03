@@ -65,3 +65,28 @@ export function setDailyBest(day, score) {
   if (score > prev) { save.dailyBest[day] = score; persist(); }
   return Math.max(prev, score);
 }
+
+// Cosmetic stickers for your pen barrel, the real school way.
+export const STICKERS = [
+  { id: "none", name: "Plain", unlock: 0 },
+  { id: "flame", name: "Flames", unlock: 1 },
+  { id: "star", name: "Star", unlock: 2 },
+  { id: "heart", name: "Heart", unlock: 3 },
+  { id: "tape", name: "Tape wrap", unlock: 4 },
+  { id: "topper", name: "100/100", unlock: 5 },
+  { id: "skull", name: "Skull", unlock: 7 }
+];
+
+export function playerLevel() {
+  return levelFor(save.xp).level;
+}
+
+export function isUnlocked(item) {
+  return (item.unlock || 0) <= playerLevel();
+}
+
+// XP awards, one place.
+export const XP = {
+  match: 30, win: 120, ko: 40, mount: 50,
+  academyStar: 25, daily: 60
+};

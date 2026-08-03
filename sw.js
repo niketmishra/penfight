@@ -1,7 +1,7 @@
 // Service worker. Versioned core cache, network-first for the shell so
 // updates land after one reload, cache fallback for offline practice.
 
-const CORE = "penfight-core-v1";
+const CORE = "penfight-core-v2";
 
 const SHELL = [
   ".",
@@ -16,6 +16,13 @@ const SHELL = [
   "js/render.js",
   "js/screens.js",
   "js/sfx.js",
+  "js/fx.js",
+  "js/commentary.js",
+  "js/modes.js",
+  "js/tables.js",
+  "js/levels.js",
+  "js/daily.js",
+  "js/progress.js",
   "js/code.js",
   "js/config.js",
   "js/net.js",

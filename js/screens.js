@@ -17,15 +17,16 @@ export function chipColor(seat) { return CHIP_COLORS[seat % CHIP_COLORS.length];
 
 // ---------- mode + table select ----------
 
-export function buildModeCards(modes, selectedId, onSelect) {
+export function buildModeCards(modes, selectedId, onSelect, playerLevel = 99) {
   const wrap = $("mode-cards");
   wrap.innerHTML = "";
   for (const m of modes) {
+    const open = (m.unlock || 0) <= playerLevel;
     const card = document.createElement("button");
     card.type = "button";
-    card.className = "mode-card" + (m.id === selectedId ? " sel" : "");
-    card.innerHTML = `<span class="mi">${m.icon}</span><span><h4>${esc(m.name)}</h4><p>${esc(m.desc)}</p></span>`;
-    card.addEventListener("click", () => {
+    card.className = "mode-card" + (m.id === selectedId && open ? " sel" : "") + (open ? "" : " locked");
+    card.innerHTML = `<span class="mi">${m.icon}</span><span><h4>${esc(m.name)}</h4><p>${open ? esc(m.desc) : `<span class="lock-note">🔒 Unlocks at level ${m.unlock}</span>`}</p></span>`;
+    if (open) card.addEventListener("click", () => {
       wrap.querySelectorAll(".mode-card").forEach(c => c.classList.remove("sel"));
       card.classList.add("sel");
       onSelect(m);
@@ -34,19 +35,21 @@ export function buildModeCards(modes, selectedId, onSelect) {
   }
 }
 
-export function buildTableChips(tables, selectedId, onSelect) {
+export function buildTableChips(tables, selectedId, onSelect, playerLevel = 99) {
   const wrap = $("table-chips");
   wrap.innerHTML = "";
   for (const t of tables) {
+    const open = (t.unlock || 0) <= playerLevel;
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.className = "table-chip" + (t.id === selectedId ? " sel" : "");
-    chip.textContent = t.name;
-    chip.addEventListener("click", () => {
+    chip.className = "table-chip" + (t.id === selectedId && open ? " sel" : "") + (open ? "" : " locked");
+    chip.textContent = open ? t.name : `🔒 ${t.name} · Lv ${t.unlock}`;
+    if (open) chip.addEventListener("click", () => {
       wrap.querySelectorAll(".table-chip").forEach(c => c.classList.remove("sel"));
       chip.classList.add("sel");
       onSelect(t);
     });
+    else chip.classList.add("locked");
     wrap.appendChild(chip);
   }
 }
@@ -109,42 +112,75 @@ export function buildAcademyGrid(levels, progress, unlockedFn, onPick) {
 
 // ---------- pen picker ----------
 
-export function buildPicker(selectedId, onSelect) {
+export function buildPicker(selectedId, onSelect, playerLevel = 99) {
   const wrap = $("pen-carousel");
   wrap.innerHTML = "";
+  const unlocked = pen => (pen.unlock || 0) <= playerLevel;
+  let selId = selectedId;
+  if (!unlocked(PENS.find(p => p.id === selId) || PENS[0])) selId = PENS[0].id;
   for (const pen of PENS) {
+    const open = unlocked(pen);
     const card = document.createElement("div");
-    card.className = "pen-card" + (pen.id === selectedId ? " sel" : "");
+    card.className = "pen-card" + (pen.id === selId ? " sel" : "") + (open ? "" : " locked");
     card.dataset.pen = pen.id;
     const cv = document.createElement("canvas");
     cv.width = 60; cv.height = 220;
     drawThumb(cv, pen);
     card.appendChild(cv);
+    if (!open) {
+      const tag = document.createElement("span");
+      tag.className = "lock-tag";
+      tag.textContent = "🔒 Lv " + pen.unlock;
+      card.appendChild(tag);
+    }
     card.addEventListener("click", () => {
+      showPenInfo(pen, open);
+      if (!open) return;
       wrap.querySelectorAll(".pen-card").forEach(c => c.classList.remove("sel"));
       card.classList.add("sel");
       card.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-      showPenInfo(pen);
       onSelect(pen);
     });
     wrap.appendChild(card);
   }
-  const sel = PENS.find(p => p.id === selectedId) || PENS[0];
-  showPenInfo(sel);
+  const sel = PENS.find(p => p.id === selId) || PENS[0];
+  showPenInfo(sel, true);
+  if (sel.id !== selectedId) onSelect(sel);
   const selCard = wrap.querySelector(`[data-pen="${sel.id}"]`);
   if (selCard) setTimeout(() => selCard.scrollIntoView({ inline: "center", block: "nearest" }), 50);
 }
 
-function showPenInfo(pen) {
-  $("pen-name").textContent = pen.name;
+function showPenInfo(pen, unlockedNow = true) {
+  $("pen-name").textContent = pen.name + (unlockedNow ? "" : " 🔒");
   $("pen-inspo").textContent = pen.inspo;
   $("pen-trait").textContent = pen.trait;
+  $("pen-quirk").innerHTML = pen.quirk
+    ? `<b style="color:var(--accent-2)">${esc(pen.quirk.name)}:</b> ${esc(pen.quirk.text)}`
+    : "";
   const stats = statBars(pen);
   const labels = { weight: "Weight", glide: "Glide", spin: "Spin", reach: "Reach" };
   $("pen-stats").innerHTML = Object.entries(stats).map(([k, v]) => `
     <div class="stat-row"><span>${labels[k]}</span>
       <div class="stat-track"><div class="stat-fill" style="width:${Math.round(8 + v * 92)}%"></div></div>
     </div>`).join("");
+}
+
+export function buildStickerRow(stickers, selectedId, playerLevel, onSelect) {
+  const wrap = $("sticker-row");
+  wrap.innerHTML = "";
+  for (const st of stickers) {
+    const open = (st.unlock || 0) <= playerLevel;
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "sticker-chip" + (st.id === selectedId ? " sel" : "") + (open ? "" : " locked");
+    chip.textContent = open ? st.name : `${st.name} · Lv ${st.unlock}`;
+    chip.addEventListener("click", () => {
+      wrap.querySelectorAll(".sticker-chip").forEach(c => c.classList.remove("sel"));
+      chip.classList.add("sel");
+      onSelect(st);
+    });
+    wrap.appendChild(chip);
+  }
 }
 
 // Simplified vertical pen for cards, tip pointing up.

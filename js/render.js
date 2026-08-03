@@ -350,7 +350,7 @@ export function createRenderer(canvas) {
       }
 
       const lift = sim.airborneLift ? sim.airborneLift(uid) : 0;
-      drawPen(data.pen, d.x, d.y, d.angle + wobble, 1 + lift * 0.2, 1, true, lift * 0.35);
+      drawPen(data.pen, d.x, d.y, d.angle + wobble, 1 + lift * 0.2, 1, true, lift * 0.35, data.sticker);
     });
     for (const uid of [...drawn.keys()]) if (!seen.has(uid)) { drawn.delete(uid); teetering.delete(uid); }
 
@@ -536,8 +536,62 @@ export function createRenderer(canvas) {
     ctx.restore();
   }
 
+  // Little barrel decals, applied after the pen body.
+  function drawSticker(sticker, L, W) {
+    const cx = -L * 0.06;   // mid barrel
+    ctx.save();
+    ctx.translate(cx, 0);
+    if (sticker === "flame") {
+      ctx.fillStyle = "#ff7b24";
+      for (const [dx, k] of [[-W * 0.5, 0.8], [0, 1], [W * 0.5, 0.7]]) {
+        ctx.beginPath();
+        ctx.moveTo(dx - W * 0.18, W * 0.3);
+        ctx.quadraticCurveTo(dx - W * 0.2, -W * 0.4 * k, dx, -W * 0.55 * k);
+        ctx.quadraticCurveTo(dx + W * 0.2, -W * 0.4 * k, dx + W * 0.18, W * 0.3);
+        ctx.fill();
+      }
+    } else if (sticker === "star") {
+      ctx.fillStyle = "#ffd166";
+      starPath(ctx, 0, 0, W * 0.42, W * 0.18, 5);
+      ctx.fill();
+    } else if (sticker === "heart") {
+      ctx.fillStyle = "#ff5470";
+      ctx.beginPath();
+      const s = W * 0.32;
+      ctx.moveTo(0, s * 0.9);
+      ctx.bezierCurveTo(-s * 1.4, -s * 0.3, -s * 0.5, -s * 1.2, 0, -s * 0.3);
+      ctx.bezierCurveTo(s * 0.5, -s * 1.2, s * 1.4, -s * 0.3, 0, s * 0.9);
+      ctx.fill();
+    } else if (sticker === "tape") {
+      ctx.fillStyle = "rgba(210,210,200,0.85)";
+      ctx.fillRect(-W * 0.45, -W * 0.55, W * 0.9, W * 1.1);
+      ctx.fillStyle = "rgba(160,160,150,0.5)";
+      ctx.fillRect(-W * 0.45, -W * 0.55, W * 0.9, W * 0.14);
+    } else if (sticker === "topper") {
+      ctx.fillStyle = "#ffd166";
+      ctx.fillRect(-W * 0.75, -W * 0.4, W * 1.5, W * 0.8);
+      ctx.fillStyle = "#3a2c00";
+      ctx.font = `bold ${W * 0.5}px "Space Grotesk", sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("100", 0, W * 0.03);
+    } else if (sticker === "skull") {
+      ctx.fillStyle = "#f2f4fb";
+      ctx.beginPath();
+      ctx.arc(0, -W * 0.08, W * 0.34, Math.PI, 0);
+      ctx.rect(-W * 0.34, -W * 0.08, W * 0.68, W * 0.3);
+      ctx.fill();
+      ctx.fillStyle = "#1d2026";
+      ctx.beginPath();
+      ctx.arc(-W * 0.14, -W * 0.1, W * 0.1, 0, Math.PI * 2);
+      ctx.arc(W * 0.14, -W * 0.1, W * 0.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   // Vector pen, local long axis along +x, drawn at world (x, y, angle).
-  function drawPen(pen, x, y, angle, sizeK, alpha, shadow, lift = 0) {
+  function drawPen(pen, x, y, angle, sizeK, alpha, shadow, lift = 0, sticker = null) {
     const s = view.toScreen(x, y);
     const L = pen.length * eScale * sizeK;
     const W = pen.dia * eScale * sizeK * 1.35;
@@ -620,7 +674,19 @@ export function createRenderer(canvas) {
       ctx.lineTo(hl - L * 0.03, W * 0.12);
       ctx.fill();
     }
+    if (sticker && sticker !== "none") drawSticker(sticker, L, W);
     ctx.restore();
+  }
+
+  function starPath(g, cx, cy, outer, inner, points) {
+    g.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+      const r = i % 2 === 0 ? outer : inner;
+      const a = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+      const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r;
+      if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+    }
+    g.closePath();
   }
 
   function addFall(ev, pen) {

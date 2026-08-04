@@ -546,6 +546,9 @@ input:focus { border-color: var(--gold); }
   font-family: var(--display);
   font-size: 15px;
   letter-spacing: 0.5px;
+  max-width: 92vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 10px 20px 11px;
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(27, 35, 56, 0.92), rgba(16, 20, 34, 0.92));
@@ -753,3 +756,18 @@ input:focus { border-color: var(--gold); }
 
 .payout-row .kos { display: inline-flex; align-items: center; gap: 3px; color: var(--dim); font-size: 12px; font-weight: 700; }
 .payout-row .kos .icn { width: 1em; height: 1em; color: var(--hot); }
+
+
+/* ---------- small phones: compact HUD ---------- */
+@media (max-width: 420px) {
+  #turn-banner { font-size: 13px; padding: 8px 16px 9px; }
+  #pot-ribbon { font-size: 11px; padding: 5px 12px; top: calc(env(safe-area-inset-top) + 54px); }
+  .chip { font-size: 11px; padding: 5px 9px; gap: 5px; }
+  .chip .chip-bal { font-size: 10px; }
+  .chip .dot { width: 8px; height: 8px; }
+  #chips { gap: 5px; bottom: calc(env(safe-area-inset-bottom) + 8px); }
+  #btn-done { bottom: calc(env(safe-area-inset-bottom) + 54px); padding: 10px 20px 12px; font-size: 14px; }
+  #emoji-bar { bottom: calc(env(safe-area-inset-bottom) + 96px); }
+  .emoji-btn { width: 38px; height: 38px; font-size: 17px; }
+  #timer-wrap { top: calc(env(safe-area-inset-top) + 48px); }
+}

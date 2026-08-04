@@ -65,11 +65,25 @@ export function createRenderer(canvas) {
     deskCache = null;
   }
 
+  // Space (CSS px) reserved for DOM HUD above and below the desk, so the
+  // banner, pot ribbon and player chips never sit on the playing surface.
+  let hudTop = 0, hudBottom = 0;
+  function setHudInsets(top, bottom) {
+    top = Math.max(0, Math.round(top));
+    bottom = Math.max(0, Math.round(bottom));
+    if (top === hudTop && bottom === hudBottom) return;
+    hudTop = top;
+    hudBottom = bottom;
+    fitView();
+    deskCache = null;
+  }
+
   function fitView() {
     const half = tableHalf(table);
-    scale = Math.min(cw / (half.x * 2 + MARGIN * 2), ch / (half.y * 2 + MARGIN * 2));
+    const availH = Math.max(120 * dpr, ch - (hudTop + hudBottom) * dpr);
+    scale = Math.min(cw / (half.x * 2 + MARGIN * 2), availH / (half.y * 2 + MARGIN * 2));
     ox = cw / 2;
-    oy = ch / 2;
+    oy = hudTop * dpr + availH / 2;
     eScale = scale * cam.zoom;
   }
 
@@ -838,7 +852,7 @@ export function createRenderer(canvas) {
   resize();
 
   return {
-    view, resize, draw, addFall, softenNextFrames, setTable, setStorm, setPlacement, drawPenSprite: drawPen,
+    view, resize, draw, addFall, softenNextFrames, setTable, setStorm, setPlacement, setHudInsets, drawPenSprite: drawPen,
     fx, camFollow, camHome, killCam, introPulse,
     confettiBurst() { fx.confetti(cw, ch, dpr); },
     shake(mag) { shakeMag = Math.min(16, shakeMag + mag); },

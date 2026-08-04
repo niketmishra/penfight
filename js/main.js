@@ -151,12 +151,14 @@ function startPlacing(playerId, ms, { online = false } = {}) {
   ui.setTurnBanner(playerId === myId ? "Place your pen!" : `${p ? p.name : ""}, place your pen`, true);
   const localControl = playerId === myId || mode === "pass";
   $("btn-done").classList.toggle("hidden", !localControl);
+  updateHudInsets();
 }
 
 function finishPlacing() {
   clearTimeout(placement.timer);
   placeDrag = null;
   $("btn-done").classList.add("hidden");
+  updateHudInsets();
   if (placement.seq.length) {
     const next = placement.seq.shift();
     const np = match ? match.byId.get(next) : null;
@@ -254,10 +256,45 @@ function flashVignette() {
 
 function setPotRibbon(round, pot) {
   const el = $("pot-ribbon");
-  if (pot == null) { el.classList.add("hidden"); return; }
-  el.textContent = `Round ${round} \u00b7 Pot \u20b9${pot}`;
-  el.classList.remove("hidden");
+  if (pot == null) el.classList.add("hidden");
+  else {
+    el.textContent = `Round ${round} \u00b7 Pot \u20b9${pot}`;
+    el.classList.remove("hidden");
+  }
+  updateHudInsets();
 }
+
+// Measure the real HUD elements and hand the renderer the space they need,
+// so the desk always fits between the banner above and the chips below.
+let insetRaf = 0;
+function updateHudInsets() {
+  cancelAnimationFrame(insetRaf);
+  insetRaf = requestAnimationFrame(() => {
+    if (!match || $("hud").classList.contains("hidden")) {
+      renderer.setHudInsets(0, 0);
+      return;
+    }
+    let top = 0;
+    const banner = $("turn-banner");
+    if (banner.textContent) top = banner.getBoundingClientRect().bottom;
+    const ribbon = $("pot-ribbon");
+    if (!ribbon.classList.contains("hidden")) {
+      top = Math.max(top, ribbon.getBoundingClientRect().bottom);
+    }
+    const vh = window.innerHeight;
+    let bottom = 0;
+    const chips = $("chips");
+    if (chips.children.length) bottom = vh - chips.getBoundingClientRect().top;
+    const done = $("btn-done");
+    if (!done.classList.contains("hidden")) {
+      // Stack the done button just above however many chip rows there are.
+      done.style.bottom = (bottom ? bottom + 12 : 64) + "px";
+      bottom = Math.max(bottom, vh - done.getBoundingClientRect().top);
+    }
+    renderer.setHudInsets(top + 10, bottom + 10);
+  });
+}
+window.addEventListener("resize", updateHudInsets);
 
 // ---------- match wiring (both modes) ----------
 
@@ -468,6 +505,7 @@ function wireMatch(m, players, opts = {}) {
 
 function refreshChips(m, players) {
   ui.renderChips(players, m.state.currentId, id => m.isAlive(id));
+  updateHudInsets();
 }
 
 function myName() { return store.name || "You"; }
@@ -946,6 +984,7 @@ function cleanupMatch(opts = {}) {
   setPotRibbon(null, null);
   $("btn-done").classList.add("hidden");
   ui.setTimer(null);
+  updateHudInsets();
 }
 
 // ---------- attract mode: bots play behind the home screen ----------

@@ -1,7 +1,7 @@
 // Service worker. Versioned core cache, network-first for the shell so
 // updates land after one reload, cache fallback for offline practice.
 
-const CORE = "penfight-core-v6";
+const CORE = "penfight-core-v7";
 
 const SHELL = [
   ".",

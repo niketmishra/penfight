@@ -577,7 +577,7 @@ function startPracticeRound() {
     setTimeout(() => {
       renderer.setHighlight(null);
       flick.disarm();
-      if (series) showRoundPayout();
+      if (series) showRoundPayout({ winnerId: winner && winner.id });
       else localVictory({ winner, winnerTeam, myTeam });
     }, 1100);
   });
@@ -590,6 +590,12 @@ function startPracticeRound() {
 // Settle the round's money and show the standings table.
 function showRoundPayout(opts = {}) {
   const positions = match.positionsFinal();
+  // The win rule can disagree with raw elimination order (a self-KO loses
+  // even though that pen fell last). Money follows the declared winner.
+  if (opts.winnerId && positions.includes(opts.winnerId) && positions[0] !== opts.winnerId) {
+    positions.splice(positions.indexOf(opts.winnerId), 1);
+    positions.unshift(opts.winnerId);
+  }
   const deltas = series.settle(positions);
   const meBroke = series.balance(myId) <= 0;
   const localKind = seriesKind !== "online";
@@ -666,7 +672,7 @@ function startPassRound() {
     setTimeout(() => {
       renderer.setHighlight(null);
       flick.disarm();
-      if (series) showRoundPayout();
+      if (series) showRoundPayout({ winnerId: winner && winner.id });
       else localVictory({ winner, winnerTeam, myTeam: null });
     }, 1100);
   });
@@ -890,7 +896,7 @@ async function startOnline(kind, code) {
     renderer.setHighlight(null);
     flick.disarm();
     if (series && match) {
-      setTimeout(() => showRoundPayout({ hostWaits: !session.isHost }), 1100);
+      setTimeout(() => showRoundPayout({ hostWaits: !session.isHost, winnerId }), 1100);
       return;
     }
     setTimeout(() => {

@@ -220,6 +220,9 @@ async function connect(code, me, amCreator) {
         rematchVotes = new Set();
         lastFallenId = null;
         pendingSkips.clear();
+        // Turn numbering restarts every round; without this reset the replay
+        // guard on TURN_START would drop the whole next round's turns.
+        lastTurn = { turnIdx: -1, playerId: null };
         for (const p of s.players) p.alive = true;
         emit("start", payload);
         break;
@@ -241,7 +244,7 @@ async function connect(code, me, amCreator) {
       case EV.SETTLE: {
         if (from !== lastTurn.playerId) return;
         clearTimeout(settleWatch);
-        applySettleToRoster(payload.fallen, payload.skipped || []);
+        applySettleToRoster(payload.fallen, payload.skipped || [], payload.finalStates);
         emit("settle", payload);
         if (s.isHost) {
           const v = roomVerdict();
@@ -292,8 +295,18 @@ async function connect(code, me, amCreator) {
   }
 
   // Shared bookkeeping for a turn's outcome, host and striker paths alike.
-  function applySettleToRoster(fallen, skipped) {
-    for (const id of fallen) {
+  // finalStates is the full authoritative board: a roster player absent from
+  // it is dead even if the fallen list from an earlier lost settle never
+  // said so. Keeps the roster self-healing like the physics.
+  function applySettleToRoster(fallen, skipped, finalStates = null) {
+    const dead = new Set(fallen);
+    if (finalStates) {
+      const present = new Set(finalStates.map(s => s.uid));
+      for (const p of s.players) {
+        if (p.alive && !present.has(p.id)) dead.add(p.id);
+      }
+    }
+    for (const id of dead) {
       const p = findP(id);
       if (p && p.alive) { p.alive = false; lastFallenId = id; }
     }
@@ -398,7 +411,7 @@ async function connect(code, me, amCreator) {
     send(EV.FLICK, { turnIdx, ...params, preStates });
   };
   s.sendSettle = result => {
-    applySettleToRoster(result.fallen, result.skipped || []);
+    applySettleToRoster(result.fallen, result.skipped || [], result.finalStates);
     send(EV.SETTLE, {
       turnIdx: result.turnIdx,
       finalStates: result.finalStates,

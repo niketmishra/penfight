@@ -299,7 +299,15 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
   }
 
   // Online reconcile: snap to the striker's authoritative result.
+  // finalStates is the complete truth: any pen we still have that is absent
+  // from it must have fallen, even if a lost settle never told us (striker
+  // crashed mid-sim, message dropped). This keeps deaths self-healing the
+  // same way positions are.
   function forceSettle(finalStates, fallenIds, skippedIds = []) {
+    const present = new Set(finalStates.map(s => s.uid));
+    const implicit = [];
+    sim.eachPen(uid => { if (!present.has(uid)) implicit.push(uid); });
+    fallenIds = [...new Set([...fallenIds, ...implicit])];
     for (const id of fallenIds) {
       if (byId.has(id) ? alive.get(id) : sim.getBody(id)) {
         const b = sim.getBody(id);

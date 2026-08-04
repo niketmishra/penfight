@@ -910,7 +910,7 @@ async function startOnline(kind, code) {
     const m = modeById(session.modeId);
     return {
       minPlayers: m.teams ? 4 : m.minPlayers || 2,
-      subtitle: `${m.icon} ${m.name} · ${tableById(session.tableId).name}`
+      subtitle: `${m.name} · ${tableById(session.tableId).name}`
     };
   };
   ui.renderLobby(session.roster, myId, session.hostId, lobbyOpts());

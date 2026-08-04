@@ -29,10 +29,15 @@ Open http://localhost:8161. Everything except online rooms works immediately, fu
 ## Enable online rooms
 
 1. Create a free project at [supabase.com](https://supabase.com)
-2. Open the SQL editor, paste all of `supabase/schema.sql`, run it
-3. Project Settings > API: copy the URL and the anon public key into `js/config.js`
+2. **Authentication > Sign In / Providers: enable "Anonymous sign-ins"** (the game signs every player in anonymously so the database can verify identities)
+3. SQL Editor: paste all of `supabase/schema.sql`, run it
+4. Project Settings > API keys: copy the Project URL and the anon/publishable key into `js/config.js`, commit and push
 
-The anon key is meant to be public; row level security in the schema is the protection. Rooms are just a rendezvous row, all live play is Realtime broadcast, so the free tier is plenty.
+### Why the key in a public repo is fine
+
+The anon key is a *publishable* key, designed to ship in client code; every Supabase web app exposes it. It grants nothing by itself: all authority comes from Row Level Security. The schema enforces that reads only see rooms younger than 24 hours, only signed-in players can create lobbies (max 3/min each, 30/min site-wide), only a room's real host (`auth.uid()`, server-issued, unforgeable) can update it, and nothing can ever be deleted through the API. The service_role key is the dangerous one: never put it anywhere near the repo.
+
+Rooms are just a rendezvous row; all live play is Realtime broadcast, so the free tier is plenty. Known limitation: anyone who has a room code can join that room's broadcast channel, so codes act like invite secrets. Fine for friends; per-channel authorization (Realtime private channels) is the upgrade path if the game ever needs strangers-matchmaking.
 
 ## Deploy
 

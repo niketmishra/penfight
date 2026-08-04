@@ -19,7 +19,7 @@ export async function createRoomSession(me) {
   let code = null;
   for (let i = 0; i < 3; i++) {
     const c = genCode();
-    const err = await insertRoom(c, crypto.randomUUID());
+    const err = await insertRoom(c);   // host_id comes from the auth session
     if (!err) { code = c; break; }
     if (err.code !== "23505") throw new Error(err.message);   // not a dup key
   }

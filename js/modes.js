@@ -24,9 +24,9 @@ export const MODES = [
   {
     id: "compassbox",
     name: "Compass Box",
-    desc: "Four inkwells in the desk. Sink them or shove them off.",
+    desc: "Wooden frame, four inkwells. Sink them like carrom, nothing falls off.",
     icon: "inkwell",
-    holes: true, storm: false,
+    holes: true, storm: false, walls: true,
     minPlayers: 2, maxPlayers: 6,
     unlock: 5
   },

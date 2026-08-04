@@ -24,6 +24,8 @@ export const PHYS = {
   bandBreak: 4.5,            // momentum needed to snap through the rubber band
   bandRestN: 0.42,           // band bounce, normal component
   bandRestT: 0.85,           // band bounce, tangential component
+  wallRest: 0.55,            // wooden frame bounce (compass box walls)
+  wallRestT: 0.9,            // frame bounce, tangential component
   airborneImpulse: 2.3,      // tip hits above this launch the victim
   airborneImpulseHeavy: 1.5, // launcher pens (metal) need less
   airborneTime: 0.42,        // seconds of flight
@@ -44,7 +46,7 @@ export function flickImpulse(pen, J) {
 // Reflect a pen that ran into the rubber band. Returns the bounced velocity
 // and a position nudged back inside; shared by the live sim and the ghost
 // trajectory so the preview never lies about the band either.
-export function bandReflect(table, x, y, vx, vy) {
+export function bandReflect(table, x, y, vx, vy, restN = PHYS.bandRestN, restT = PHYS.bandRestT) {
   let nx = 0, ny = 0, cx = x, cy = y;
   if (table.shape === "round") {
     const d = Math.hypot(x, y) || 0.001;
@@ -63,12 +65,12 @@ export function bandReflect(table, x, y, vx, vy) {
   const vtx = vx - vnx, vty = vy - vny;
   return {
     x: cx, y: cy,
-    vx: vtx * PHYS.bandRestT - vnx * PHYS.bandRestN,
-    vy: vty * PHYS.bandRestT - vny * PHYS.bandRestN
+    vx: vtx * restT - vnx * restN,
+    vy: vty * restT - vny * restN
   };
 }
 
-export function createSim({ table = tableById("classroom"), holes = [], zones = [], props = [], band = false } = {}) {
+export function createSim({ table = tableById("classroom"), holes = [], zones = [], props = [], band = false, walls = false } = {}) {
   const world = new pl.World({ gravity: new pl.Vec2(0, 0) });
   const bodies = new Map();     // uid -> pen body
   const statics = [];           // furniture bodies (never in snapshots)
@@ -82,12 +84,16 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
 
   const pairKey = (a, b) => (a < b ? a + "|" + b : b + "|" + a);
 
-  // Airborne pens sail over everything on the desk.
+  // Airborne pens sail over everything on the desk, except the wooden frame:
+  // nothing flies out of a compass box.
   world.on("pre-solve", contact => {
     const udA = contact.getFixtureA().getBody().getUserData() || {};
     const udB = contact.getFixtureB().getBody().getUserData() || {};
     if ((udA.uid && airborne.has(udA.uid)) || (udB.uid && airborne.has(udB.uid))) {
-      contact.setEnabled(false);
+      if (udA.kind !== "wall" && udB.kind !== "wall") {
+        contact.setEnabled(false);
+        return;
+      }
       return;
     }
     if (udA.uid && udB.uid && mountPairs.has(pairKey(udA.uid, udB.uid))) {
@@ -140,7 +146,7 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     return side;
   }
 
-  function addPen(pen, { uid, ownerId, x, y, angle, sticker }) {
+  function addPen(pen, { uid, ownerId, x, y, angle, sticker, team }) {
     const hl = pen.length / 2;
     const r = pen.dia / 2;
     const body = world.createBody({
@@ -160,7 +166,7 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     body.createFixture(new pl.Box(hl - r, r), opts);
     body.createFixture(new pl.Circle(new pl.Vec2(hl - r, 0), r), opts);
     body.createFixture(new pl.Circle(new pl.Vec2(-(hl - r), 0), r), opts);
-    body.setUserData({ uid, ownerId, penId: pen.id, pen, sticker: sticker || null });
+    body.setUserData({ uid, ownerId, penId: pen.id, pen, sticker: sticker || null, team: team ?? null });
     bodies.set(uid, body);
     stillTime = 0;
     return body;
@@ -188,6 +194,40 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     return body;
   }
   for (const prop of props) addProp(prop);
+
+  // Compass box: a wooden frame just outside the playing surface. Real static
+  // bodies, so pens carom off them instead of falling; only holes eliminate.
+  if (walls) {
+    const wallOpts = { friction: 0.12, restitution: PHYS.wallRest };
+    const thick = 0.3;
+    const mk = fixture => {
+      const body = world.createBody({ position: new pl.Vec2(0, 0) });
+      body.createFixture(fixture, wallOpts);
+      body.setUserData({ furniture: true, kind: "wall" });
+      statics.push(body);
+    };
+    if (table.shape === "round") {
+      const r = table.r + thick / 2;
+      const verts = [];
+      for (let i = 0; i < 48; i++) {
+        const a = (i / 48) * Math.PI * 2;
+        verts.push(new pl.Vec2(Math.cos(a) * r, Math.sin(a) * r));
+      }
+      mk(new pl.Chain(verts, true));
+    } else {
+      const hx = half.x, hy = half.y, t = thick / 2;
+      const side = (w, h, x, y) => {
+        const body = world.createBody({ position: new pl.Vec2(x, y) });
+        body.createFixture(new pl.Box(w, h), wallOpts);
+        body.setUserData({ furniture: true, kind: "wall" });
+        statics.push(body);
+      };
+      side(t, hy + thick, hx + t, 0);
+      side(t, hy + thick, -hx - t, 0);
+      side(hx + thick, t, 0, hy + t);
+      side(hx + thick, t, 0, -hy - t);
+    }
+  }
 
   // params: { dx, dy, J, off } with (dx, dy) normalized, off along the pen's
   // long axis from its center. Offset flicks produce torque automatically.
@@ -306,6 +346,17 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
       const hole = offTable ? null : inHole(holes, p.x, p.y);
       if (!offTable && !hole) continue;
 
+      // Inside the wooden frame nothing leaves over the edge; a center that
+      // still crosses (corner tunneling) gets shoved back onto the board.
+      if (offTable && walls) {
+        const v0 = body.getLinearVelocity();
+        const r = bandReflect(table, p.x, p.y, v0.x, v0.y, PHYS.wallRest, PHYS.wallRestT);
+        body.setTransform(new pl.Vec2(r.x, r.y), body.getAngle());
+        body.setLinearVelocity(new pl.Vec2(r.vx, r.vy));
+        stillTime = 0;
+        continue;
+      }
+
       const v = body.getLinearVelocity();
       const pen = body.getUserData().pen;
       const momentum = pen.mass * Math.hypot(v.x, v.y);
@@ -325,6 +376,8 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
         brokeBand: Boolean(offTable && band),
         ownerId: body.getUserData().ownerId,
         penId: body.getUserData().penId,
+        sticker: body.getUserData().sticker,
+        team: body.getUserData().team,
         x: p.x, y: p.y, angle: body.getAngle(),
         vx: v.x, vy: v.y, w: body.getAngularVelocity()
       });
@@ -364,9 +417,11 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     let w = (rX * params.dy * J - rY * params.dx * J) / I;
     w = Math.max(-PHYS.maxOmega, Math.min(PHYS.maxOmega, w));
     let x = pos.x, y = pos.y;
+    let ang = a0;
     const dt = PHYS.dt;   // same step as the real sim so the ghost never lies
     const points = [];
     let exit = null;
+    const hlPen = pen.length / 2, rPen = pen.dia / 2;
     for (let t = 0, i = 0; t < maxT; t += dt, i++) {
       const sp0 = Math.hypot(vx, vy);
       if (sp0 <= PHYS.settleLin) break;
@@ -390,6 +445,30 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
       x += vx * dt; y += vy * dt;
       if (i % 6 === 0) points.push({ x, y });
       if (inHole(holes, x, y)) { exit = { x, y }; break; }
+      if (walls) {
+        // The real body bounces when its hull meets the wall, not its
+        // center: shrink the table by the capsule's extent along each wall
+        // normal (nose-first hits reach much further than side hits).
+        ang += w * dt;
+        if (table.shape === "round") {
+          const d = Math.hypot(x, y) || 0.001;
+          const ext = hlPen * Math.abs((Math.cos(ang) * x + Math.sin(ang) * y) / d) + rPen;
+          const wt = { shape: "round", r: table.r - ext };
+          if (!tableContains(wt, x, y)) {
+            const rw = bandReflect(wt, x, y, vx, vy, PHYS.wallRest, PHYS.wallRestT);
+            x = rw.x; y = rw.y; vx = rw.vx; vy = rw.vy;
+          }
+        } else {
+          const ex = hlPen * Math.abs(Math.cos(ang)) + rPen;
+          const ey = hlPen * Math.abs(Math.sin(ang)) + rPen;
+          const wt = { shape: "rect", w: table.w - 2 * ex, h: table.h - 2 * ey };
+          if (!tableContains(wt, x, y)) {
+            const rw = bandReflect(wt, x, y, vx, vy, PHYS.wallRest, PHYS.wallRestT);
+            x = rw.x; y = rw.y; vx = rw.vx; vy = rw.vy;
+          }
+        }
+        continue;
+      }
       if (!tableContains(table, x, y)) {
         const mom = pen.mass * Math.hypot(vx, vy);
         if (band && mom < PHYS.bandBreak) {
@@ -446,7 +525,7 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
   }
 
   return {
-    world, bodies, statics, table, holes, zones, props, half, band,
+    world, bodies, statics, table, holes, zones, props, half, band, walls,
     addPen, removePen, addProp, applyFlick, step, airborneLift, predictPath,
     isSettled, snapshot, applySnapshot, eachPen,
     resetSimClock() { simTime = 0; stillTime = 0; },

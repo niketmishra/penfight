@@ -4,6 +4,7 @@
 // smoothing, which smooths fixed-step motion and softens online snaps.
 
 import { tableById, tableHalf, edgeClearance } from "./tables.js";
+import { TEAM_COLORS } from "./modes.js";
 import { createFx } from "./fx.js";
 
 const MARGIN = 0.35;          // world units of floor visible around the table
@@ -17,6 +18,7 @@ export function createRenderer(canvas) {
   let deskCache = null;
   let table = tableById("classroom");
   let holes = [];
+  let wallsOn = false;
   const drawn = new Map();     // uid -> {x, y, angle, tau}
   const falls = [];            // active fall animations, dt-driven
   let shakeMag = 0;
@@ -90,6 +92,7 @@ export function createRenderer(canvas) {
   function setTable(t, opts = {}) {
     table = t;
     holes = opts.holes || [];
+    wallsOn = Boolean(opts.walls);
     camHome(true);
     fitView();
     deskCache = null;
@@ -259,17 +262,66 @@ export function createRenderer(canvas) {
       const c = baseToScreen(h.x, h.y);
       const rp = h.r * scale;
       const hg = g.createRadialGradient(c.x, c.y, rp * 0.1, c.x, c.y, rp);
-      hg.addColorStop(0, "#05060a");
+      hg.addColorStop(0, wallsOn ? "#020308" : "#05060a");
       hg.addColorStop(0.75, "#0b0e18");
       hg.addColorStop(1, "#1c1206");
       g.fillStyle = hg;
       g.beginPath(); g.arc(c.x, c.y, rp, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = "rgba(255,220,170,0.25)";
-      g.lineWidth = 1.5 * dpr;
-      g.beginPath(); g.arc(c.x, c.y, rp, 0, Math.PI * 2); g.stroke();
+      if (wallsOn) {
+        // Carrom-pocket rim: a turned wooden ring around the well.
+        g.strokeStyle = "rgba(120,72,30,0.85)";
+        g.lineWidth = 3.5 * dpr;
+        g.beginPath(); g.arc(c.x, c.y, rp + 2 * dpr, 0, Math.PI * 2); g.stroke();
+        g.strokeStyle = "rgba(255,220,170,0.35)";
+        g.lineWidth = 1.2 * dpr;
+        g.beginPath(); g.arc(c.x, c.y, rp + 4.2 * dpr, 0, Math.PI * 2); g.stroke();
+      } else {
+        g.strokeStyle = "rgba(255,220,170,0.25)";
+        g.lineWidth = 1.5 * dpr;
+        g.beginPath(); g.arc(c.x, c.y, rp, 0, Math.PI * 2); g.stroke();
+      }
     }
 
     g.restore();
+
+    if (wallsOn) {
+      // Wooden plank frame just outside the playing surface: carrom vibes.
+      const fw = 14 * dpr;
+      g.save();
+      g.lineJoin = "round";
+      const wg = g.createLinearGradient(x0, y0 - fw, x0, y0 + tht + fw);
+      wg.addColorStop(0, "#6d4322");
+      wg.addColorStop(0.5, "#543014");
+      wg.addColorStop(1, "#3c1f0b");
+      g.strokeStyle = wg;
+      g.lineWidth = fw;
+      deskPath(g, -fw / 2);
+      g.stroke();
+      // Bevel light on the inner lip and a dark outer rim.
+      g.strokeStyle = "rgba(255,214,160,0.35)";
+      g.lineWidth = 1.6 * dpr;
+      deskPath(g, 0.5 * dpr);
+      g.stroke();
+      g.strokeStyle = "rgba(12,6,2,0.9)";
+      g.lineWidth = 2 * dpr;
+      deskPath(g, -fw);
+      g.stroke();
+      // Corner screws on rectangular boxes.
+      if (table.shape !== "round") {
+        for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+          const c = baseToScreen(sx * half.x, sy * half.y);
+          const px = c.x + sx * fw * 0.5, py = c.y + sy * fw * 0.5;
+          g.fillStyle = "#2a1608";
+          g.beginPath(); g.arc(px, py, 3.2 * dpr, 0, Math.PI * 2); g.fill();
+          g.strokeStyle = "rgba(255,214,160,0.4)";
+          g.lineWidth = 1 * dpr;
+          g.beginPath();
+          g.moveTo(px - 2 * dpr, py); g.lineTo(px + 2 * dpr, py);
+          g.stroke();
+        }
+      }
+      g.restore();
+    }
 
     g.strokeStyle = th.edge;
     g.lineWidth = 3 * dpr;
@@ -341,7 +393,7 @@ export function createRenderer(canvas) {
       const x = f.x + f.vx * t * 0.24;
       const y = f.y + f.vy * t * 0.24 + t * t * 0.55;
       const a = f.angle + f.w * t * 0.35;
-      drawPen(f.pen, x, y, a, 1 - t * 0.5, 1 - t, false);
+      drawPen(f.pen, x, y, a, 1 - t * 0.5, 1 - t, false, 0, f.sticker, f.team);
     }
 
     // Live pens with teeter drama
@@ -371,7 +423,7 @@ export function createRenderer(canvas) {
       if (spd > 6 && Math.random() < 0.55) fx.trail(x, y);
       if (garam.has(uid)) drawGaram(d.x, d.y, data.pen, tNow);
       const lift = sim.airborneLift ? sim.airborneLift(uid) : 0;
-      drawPen(data.pen, d.x, d.y, d.angle + wobble, 1 + lift * 0.2, 1, true, lift * 0.35, data.sticker);
+      drawPen(data.pen, d.x, d.y, d.angle + wobble, 1 + lift * 0.2, 1, true, lift * 0.35, data.sticker, data.team);
     });
     for (const uid of [...drawn.keys()]) if (!seen.has(uid)) { drawn.delete(uid); teetering.delete(uid); }
 
@@ -739,7 +791,7 @@ export function createRenderer(canvas) {
   }
 
   // Vector pen, local long axis along +x, drawn at world (x, y, angle).
-  function drawPen(pen, x, y, angle, sizeK, alpha, shadow, lift = 0, sticker = null) {
+  function drawPen(pen, x, y, angle, sizeK, alpha, shadow, lift = 0, sticker = null, team = null) {
     const s = view.toScreen(x, y);
     const L = pen.length * eScale * sizeK;
     const W = pen.dia * eScale * sizeK * 1.35;
@@ -748,6 +800,19 @@ export function createRenderer(canvas) {
     ctx.translate(s.x, s.y - lift * eScale);
     ctx.rotate(angle);
     ctx.globalAlpha = alpha;
+
+    if (team != null && TEAM_COLORS[team]) {
+      // Team underglow: read your bench at a glance.
+      const tc = TEAM_COLORS[team];
+      const glow = ctx.createRadialGradient(0, 0, W * 0.4, 0, 0, L * 0.62);
+      glow.addColorStop(0, tc + "55");
+      glow.addColorStop(0.75, tc + "22");
+      glow.addColorStop(1, tc + "00");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, L * 0.62, W * 1.7, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     if (shadow) {
       ctx.save();
@@ -820,6 +885,15 @@ export function createRenderer(canvas) {
       ctx.moveTo(hl - L * 0.03, -W * 0.12);
       ctx.lineTo(hl, 0);
       ctx.lineTo(hl - L * 0.03, W * 0.12);
+      ctx.fill();
+    }
+    if (team != null && TEAM_COLORS[team]) {
+      // Jersey band just past the cap, same spot on every pen shape.
+      ctx.fillStyle = TEAM_COLORS[team];
+      rr(ctx, -hl + L * 0.32, -W / 2, L * 0.1, W, W * 0.18);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      rr(ctx, -hl + L * 0.32, -W / 2, L * 0.1, W * 0.3, W * 0.12);
       ctx.fill();
     }
     if (sticker && sticker !== "none") drawSticker(sticker, L, W);

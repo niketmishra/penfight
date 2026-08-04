@@ -141,6 +141,46 @@ export function clinkCascade(n = 4) {
   for (let i = 0; i < n; i++) clink(i * 0.09);
 }
 
+// Soft menu tap: a filtered thump, quiet enough to live on every button.
+export function uiTap() {
+  if (!unlocked || !ac || muted) return;
+  const t = now();
+  const osc = ac.createOscillator();
+  const g = ac.createGain();
+  const f = ac.createBiquadFilter();
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(620, t);
+  osc.frequency.exponentialRampToValueAtTime(240, t + 0.06);
+  f.type = "lowpass";
+  f.frequency.value = 1400;
+  g.gain.setValueAtTime(0.06, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+  osc.connect(f).connect(g).connect(ac.destination);
+  osc.start(t); osc.stop(t + 0.09);
+}
+
+// Short airy sweep for screen changes.
+export function uiSwish() {
+  if (!unlocked || !ac || muted) return;
+  const t = now();
+  const len = 0.16;
+  const buf = ac.createBuffer(1, ac.sampleRate * len, ac.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  const f = ac.createBiquadFilter();
+  f.type = "bandpass";
+  f.frequency.setValueAtTime(700, t);
+  f.frequency.exponentialRampToValueAtTime(2400, t + len);
+  f.Q.value = 1.2;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.05, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + len);
+  src.connect(f).connect(g).connect(ac.destination);
+  src.start(t);
+}
+
 // Kill-cam slow-mo entry.
 export function whoomp() {
   if (!unlocked || !ac || muted) return;

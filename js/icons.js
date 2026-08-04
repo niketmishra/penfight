@@ -88,6 +88,27 @@ export const ICONS = {
   crown: svg(`
     <path d="M4.5 17 L4 8.5 8 12 12 6 16 12 20 8.5 19.5 17 Z" fill="currentColor" stroke="none" opacity="0.9"/>
     <path d="M4.5 19.2 h15"/>
+  `),
+  check: svg(`
+    <path d="M4.5 12.5 L10 18 19.5 6.5" stroke-width="2.4"/>
+  `),
+  // Reaction bar: laugh, shock, clap join flame. Faces are stroke circles so
+  // they inherit the button color like every other icon.
+  laugh: svg(`
+    <circle cx="12" cy="12" r="8.5"/>
+    <path d="M8 10 l2 1.2 M16 10 l-2 1.2"/>
+    <path d="M7.5 13.5 a4.8 4.8 0 0 0 9 0 Z" fill="currentColor" stroke="none" opacity="0.85"/>
+  `),
+  shock: svg(`
+    <circle cx="12" cy="12" r="8.5"/>
+    <circle cx="9" cy="9.6" r="1" fill="currentColor" stroke="none"/>
+    <circle cx="15" cy="9.6" r="1" fill="currentColor" stroke="none"/>
+    <ellipse cx="12" cy="15" rx="2" ry="2.8"/>
+  `),
+  clap: svg(`
+    <path d="M7 11 l4.5 -4.5 M9.5 13 L15 7.5 M12 15 l4.5 -4.5" stroke-width="2"/>
+    <path d="M6 14 a6.5 6.5 0 0 0 10.5 5.5 L20 16"/>
+    <path d="M3.5 7.5 l1.8 1 M5.5 4.5 l1.2 1.6 M9 3 l0.4 2"/>
   `)
 };
 

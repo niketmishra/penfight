@@ -11,7 +11,7 @@ import * as ui from "./screens.js";
 import { onlineConfigured } from "./net.js";
 import { canonicalize, isValidCode } from "./code.js";
 import { ICONS, icon } from "./icons.js";
-import { MODES, modeById, teamOfSeat, TEAM_NAMES } from "./modes.js";
+import { MODES, modeById, teamOfSeat, TEAM_NAMES, TEAM_COLORS } from "./modes.js";
 import { TABLES, tableById } from "./tables.js";
 import { commentate } from "./commentary.js";
 import { LEVELS, starsFor, levelUnlocked } from "./levels.js";
@@ -45,7 +45,10 @@ const store = {
   set band(v) { localStorage.setItem("pf_band", v ? "on" : "off"); }
 };
 const myId = store.id;
-const mySticker = () => save.settings.sticker || null;
+// Pens get a random design each match; the picker no longer asks. Rolled
+// once per match/lobby join so the same design shows locally and remotely.
+const DESIGNS = STICKERS.filter(s => s.id !== "none").map(s => s.id);
+const randomSticker = () => DESIGNS[Math.floor(Math.random() * DESIGNS.length)];
 
 // ---------- core objects ----------
 
@@ -65,6 +68,9 @@ let botsCtl = null;
 const flow = { kind: null, modeId: "classic", tableId: "classroom", teamSize: 4, band: true };
 let passNames = ["", ""];
 let lastPassNames = null;
+
+// XP earned in the last finished match, shown on the victory screen.
+let lastVictoryXp = null;
 
 // The Daav: betting series state for FFA versus modes.
 let series = null;
@@ -308,6 +314,7 @@ function wireMatch(m, players, opts = {}) {
   let lastTeeterAt = 0;
   const killsBy = new Map();   // striker uid -> KOs this round (garam pen)
   renderer.clearGaram();
+  lastVictoryXp = null;
 
   m.on("hit", ev => {
     const loud = ev.a.speed > ev.b.speed ? ev.a : ev.b;
@@ -425,7 +432,7 @@ function wireMatch(m, players, opts = {}) {
     }
     const p = m.byId.get(t.playerId);
     const seatIdx = players.findIndex(q => q.id === t.playerId);
-    const hlColor = p && p.team != null ? undefined : ui.chipColor(seatIdx < 0 ? 0 : seatIdx);
+    const hlColor = p && p.team != null ? TEAM_COLORS[p.team] : ui.chipColor(seatIdx < 0 ? 0 : seatIdx);
     renderer.setHighlight(t.playerId, hlColor);
     if (opts.passPlay) {
       flick.disarm();
@@ -475,10 +482,11 @@ function wireMatch(m, players, opts = {}) {
     let gain = XP.match + xpTally.kos * XP.ko + xpTally.mounts * XP.mount + (iWon ? XP.win : 0);
     if (mode === "daily") gain += XP.daily;
     addXp(gain);
+    const lf = levelFor(save.xp);
+    lastVictoryXp = { gained: gain, frac: lf.into / lf.need };
     setTimeout(() => {
-      ui.toast(`+${gain} XP`);
       const after = playerLevel();
-      if (after > before) ui.comment(`LEVEL UP! Ab aap Level ${after} ho`);
+      if (after > before) showCeremony(`LEVEL ${after}!`, unlocksAt(after));
     }, 1700);
   });
 
@@ -508,35 +516,80 @@ function refreshChips(m, players) {
   updateHudInsets();
 }
 
+// Level-up ceremony: a stamp-style gold banner plus confetti, hard to miss.
+function unlocksAt(level) {
+  const items = [
+    ...MODES.filter(m => m.unlock === level).map(m => m.name),
+    ...TABLES.filter(t => (t.unlock || 0) === level).map(t => t.name),
+    ...PENS.filter(p => (p.unlock || 0) === level).map(p => p.name)
+  ];
+  return items.length ? "Unlocked: " + items.join(", ") : "Naya level, naya swag";
+}
+
+let ceremonyTimer = null;
+function showCeremony(title, sub) {
+  const el = $("ceremony");
+  el.querySelector("h3").textContent = title;
+  el.querySelector("p").textContent = sub || "";
+  el.classList.remove("hidden");
+  el.classList.remove("pop");
+  void el.offsetWidth;   // restart the animation
+  el.classList.add("pop");
+  renderer.confettiBurst();
+  sfx.win();
+  clearTimeout(ceremonyTimer);
+  ceremonyTimer = setTimeout(() => el.classList.add("hidden"), 2800);
+}
+
 function myName() { return store.name || "You"; }
 
 // ---------- practice ----------
 
+// Final standings for the victory screen: declared winner first, then the
+// raw finish order, with per-player KO counts.
+function victoryExtras(winnerId) {
+  if (!match || !match.positionsFinal) return {};
+  const kills = match.state ? match.state.kills : {};
+  const positions = match.positionsFinal();
+  if (winnerId && positions.includes(winnerId) && positions[0] !== winnerId) {
+    positions.splice(positions.indexOf(winnerId), 1);
+    positions.unshift(winnerId);
+  }
+  const standings = positions.map(id => {
+    const p = match.byId.get(id);
+    return p ? { name: p.name, isMe: id === myId, kos: kills[id] || 0, dead: !match.isAlive(id) } : null;
+  }).filter(Boolean);
+  return { standings, xp: lastVictoryXp };
+}
+
 function localVictory({ winner, winnerTeam, myTeam }) {
   renderer.setHighlight(null);
   flick.disarm();
+  const extras = victoryExtras(winner && winner.id);
   if (winnerTeam != null) {
     const won = myTeam != null && winnerTeam === myTeam;
-    if (won) sfx.win();
+    if (won) { sfx.win(); renderer.confettiBurst(); }
     ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins!`,
       winner ? `${winner.name}'s bench cleared the desk.` : "",
-      won ? "trophy" : "skull");
+      won ? "trophy" : "skull", extras);
   } else if (winner && winner.id === myId) {
     sfx.win();
-    ui.showVictory("You win!", `Your ${penById(winner.penId).name} owns the desk.`, "trophy");
+    renderer.confettiBurst();
+    ui.showVictory("You win!", `Your ${penById(winner.penId).name} owns the desk.`, "trophy", extras);
   } else {
     ui.showVictory(winner ? `${winner.name} wins` : "Nobody wins",
       winner ? `${winner.name}'s ${penById(winner.penId).name} is the last one standing.` : "Everyone fell off. Chaos.",
-      winner && winner.id !== myId && !winner.isBot ? "trophy" : "skull");
+      winner && winner.id !== myId && !winner.isBot ? "trophy" : "skull", extras);
   }
 }
 
 function startPractice() {
   const modeCfg = modeById(flow.modeId);
-  const me = { id: myId, name: myName(), penId: store.pen, isBot: false, sticker: mySticker() };
+  const me = { id: myId, name: myName(), penId: store.pen, isBot: false, sticker: randomSticker() };
   const botCount = modeCfg.teams ? flow.teamSize - 1 : store.bots;
   const diff = save.stats.matches < 3 ? "easy" : store.diff;   // mercy matches
   const bots = botRoster(botCount, store.pen, PENS, Math.random, diff);
+  for (const b of bots) b.sticker = randomSticker();
   seriesRoster = [me, ...bots];
   seriesRoster.forEach((p, i) => {
     p.seat = i;
@@ -560,7 +613,7 @@ function startPracticeRound() {
     seriesRoster.forEach(p => { p.balance = series.balance(p.id); });
   }
   match = createMatch({ players, autoAdvance: true, mode: flow.modeId, tableId: flow.tableId, band: flow.band });
-  renderer.setTable(match.table, { holes: match.holes });
+  renderer.setTable(match.table, { holes: match.holes, walls: match.sim.walls });
   wireMatch(match, players);
   botsCtl = attachBots(match);
   match.on("placing", () => {
@@ -645,6 +698,7 @@ function startPassPlay(names) {
     penId: pens[i % pens.length].id,
     isBot: false,
     seat: i,
+    sticker: randomSticker(),
     team: modeCfg.teams ? teamOfSeat(i) : undefined
   }));
   series = seriesEligible(flow.modeId) ? createSeries(seriesRoster.map(p => p.id)) : null;
@@ -665,7 +719,7 @@ function startPassRound() {
     seriesRoster.forEach(p => { p.balance = series.balance(p.id); });
   }
   match = createMatch({ players, autoAdvance: true, mode: flow.modeId, tableId: flow.tableId, band: flow.band });
-  renderer.setTable(match.table, { holes: match.holes });
+  renderer.setTable(match.table, { holes: match.holes, walls: match.sim.walls });
   wireMatch(match, players, { passPlay: true });
   match.on("over", ({ winner, winnerTeam }) => {
     ui.hidePassOverlay();
@@ -730,14 +784,14 @@ function startLevel(lv) {
   mode = "academy";
   currentLevel = lv;
   const penId = lv.pen || store.pen;
-  const players = [{ id: myId, name: myName(), penId, isBot: false, seat: 0, sticker: mySticker() }];
+  const players = [{ id: myId, name: myName(), penId, isBot: false, seat: 0, sticker: randomSticker() }];
   match = createMatch({
     players, autoAdvance: true, mode: "academy",
     tableId: lv.tableId || "classroom", flickLimit: lv.flickLimit,
     props: lv.props || [], zones: lv.zones || [], holes: lv.holes || [],
     band: false
   });
-  renderer.setTable(match.table, { holes: match.holes });
+  renderer.setTable(match.table, { holes: match.holes, walls: match.sim.walls });
   wireMatch(match, players);
   const banner = () => ui.setTurnBanner(
     `${lv.name} · ${Math.max(0, lv.flickLimit - match.state.flicksUsed)} flicks`, true);
@@ -788,14 +842,15 @@ function startDaily() {
   mode = "daily";
   const day = dayNumber();
   const setup = dailySetup(day, myId, myName());
-  setup.players[0].sticker = mySticker();
+  setup.players[0].sticker = randomSticker();
+  for (const p of setup.players) if (p.isBot) p.sticker = randomSticker();
   const players = setup.players;
   match = createMatch({
     players, autoAdvance: true, mode: "daily",
     tableId: setup.tableId, props: setup.props, zones: setup.zones,
     band: true
   });
-  renderer.setTable(match.table, { holes: match.holes });
+  renderer.setTable(match.table, { holes: match.holes, walls: match.sim.walls });
   wireMatch(match, players);
   botsCtl = attachBots(match);
   ui.toast(`Aaj ka pen: ${penById(setup.penOfDay).name}`);
@@ -839,7 +894,7 @@ async function startOnline(kind, code) {
   cleanupMatch();
   mode = "online";
   const me = {
-    playerId: myId, name: myName(), penId: store.pen, sticker: mySticker(),
+    playerId: myId, name: myName(), penId: store.pen, sticker: randomSticker(),
     modeId: kind === "create" ? flow.modeId : undefined,
     tableId: kind === "create" ? flow.tableId : undefined,
     band: kind === "create" ? flow.band : undefined
@@ -902,20 +957,23 @@ async function startOnline(kind, code) {
     setTimeout(() => {
       const pen = winner ? penById(winner.penId) : null;
       const mode = modeById(session.modeId);
+      const extras = victoryExtras(winnerId);
       if (mode.teams && winnerTeam != null) {
         const myTeam = teamOfSeat((session.roster.find(p => p.id === myId) || {}).seat || 0);
         if (winnerTeam === myTeam) {
           sfx.win();
-          ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins!`, "Your bench owns the desk.", "trophy");
+          renderer.confettiBurst();
+          ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins!`, "Your bench owns the desk.", "trophy", extras);
         } else {
-          ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins`, "Their bench cleared yours out.", "skull");
+          ui.showVictory(`${TEAM_NAMES[winnerTeam]} wins`, "Their bench cleared yours out.", "skull", extras);
         }
       } else if (winnerId === myId) {
         sfx.win();
-        ui.showVictory("You win!", pen ? `Your ${pen.name} owns the desk.` : "", "trophy");
+        renderer.confettiBurst();
+        ui.showVictory("You win!", pen ? `Your ${pen.name} owns the desk.` : "", "trophy", extras);
       } else {
         ui.showVictory(`${winner ? winner.name : "Someone"} wins`,
-          pen ? `Their ${pen.name} is the last one standing.` : "", "skull");
+          pen ? `Their ${pen.name} is the last one standing.` : "", "skull", extras);
       }
       $("btn-rematch").textContent = "Rematch";
       $("btn-rematch").disabled = false;
@@ -951,7 +1009,7 @@ function beginOnlineMatch({ order, layout, props = [], zones = [] }) {
     mode: session.modeId, tableId: session.tableId,
     props, zones, band: session.band !== false
   });
-  renderer.setTable(match.table, { holes: match.holes });
+  renderer.setTable(match.table, { holes: match.holes, walls: match.sim.walls });
   wireMatch(match, players);
 
   match.on("settle", r => {
@@ -1002,12 +1060,12 @@ function startDemo() {
   clearTimeout(demoTimer);
   mode = "demo";
   const bots = botRoster(3 + Math.floor(Math.random() * 3), null, PENS);
-  bots.forEach((p, i) => { p.seat = i; });
+  bots.forEach((p, i) => { p.seat = i; p.sticker = randomSticker(); });
   match = createMatch({
     players: bots, autoAdvance: true,
     mode: { ...modeById("classic"), storm: false }
   });
-  renderer.setTable(match.table, { holes: match.holes });
+  renderer.setTable(match.table, { holes: match.holes, walls: match.sim.walls });
   renderer.setHighlight(null);
   match.on("fall", ev => renderer.addFall(ev, penById(ev.penId)));
   match.on("hit", ev => renderer.fx.burst(ev.x, ev.y, Math.min(2, ev.impulse), "dust"));
@@ -1068,6 +1126,7 @@ $("set-lang").addEventListener("change", e => {
 $("set-motion").addEventListener("change", e => {
   save.settings.reduceMotion = e.target.checked;
   persist();
+  document.body.classList.toggle("reduce-motion", e.target.checked);
 });
 
 // ---------- screen flow ----------
@@ -1108,6 +1167,8 @@ function openModeSelect(kind) {
 function syncModeRows() {
   const m = modeById(flow.modeId);
   $("teamsize-row").classList.toggle("hidden", !(m.teams && flow.kind !== "create"));
+  // Compass box has a wooden frame; the rubber band question doesn't arise.
+  $("band-toggle").classList.toggle("hidden", Boolean(m.walls));
 }
 
 function syncBandToggle() {
@@ -1178,11 +1239,7 @@ function openPicker(kind) {
     b.classList.toggle("sel", b.dataset.diff === store.diff));
   $("bots-count").textContent = store.bots;
   $("name-input").value = store.name;
-  ui.buildPicker(store.pen, pen => { store.pen = pen.id; }, playerLevel());
-  ui.buildStickerRow(STICKERS, save.settings.sticker || "none", playerLevel(), st => {
-    save.settings.sticker = st.id === "none" ? null : st.id;
-    persist();
-  });
+  ui.buildPicker(store.pen, pen => { store.pen = pen.id; sfx.clink(); }, playerLevel());
   ui.show("s-picker");
 }
 
@@ -1304,15 +1361,25 @@ $("btn-share").addEventListener("click", async () => {
 });
 
 document.querySelectorAll(".emoji-btn").forEach(btn => {
+  btn.innerHTML = ICONS[btn.dataset.react] || "";
   let lastSent = 0;
   btn.addEventListener("click", () => {
     const nowT = Date.now();
     if (nowT - lastSent < 1000 || !session) return;
     lastSent = nowT;
-    ui.floatEmoji(btn.textContent);
-    session.sendEmoji(btn.textContent);
+    ui.floatEmoji(btn.dataset.react);
+    session.sendEmoji(btn.dataset.react);
   });
 });
+
+// Every button taps; screens whoosh on the way in.
+document.addEventListener("pointerdown", e => {
+  const b = e.target.closest("button");
+  if (!b || b.disabled) return;
+  sfx.uiTap();
+  sfx.vibrate(8);
+}, { capture: true, passive: true });
+ui.onShow(name => { if (name) sfx.uiSwish(); });
 
 // ---------- boot ----------
 
@@ -1325,6 +1392,7 @@ document.addEventListener("pointerdown", function unlock() {
 const joinParam = new URLSearchParams(location.search).get("join");
 sfx.setMuted(!save.settings.sound);
 setLanguage(save.settings.lang);
+document.body.classList.toggle("reduce-motion", Boolean(save.settings.reduceMotion));
 updateHomeMeta();
 if (joinParam && onlineConfigured) {
   pendingJoinCode = canonicalize(joinParam);

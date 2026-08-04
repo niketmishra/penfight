@@ -36,7 +36,8 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
   const clutter = props != null ? { props, zones: zones || [] }
     : modeCfg.targets ? { props: [], zones: [] }
     : genProps(table);
-  const sim = createSim({ table, holes, props: clutter.props, zones: clutter.zones, band });
+  const walls = Boolean(modeCfg.walls);
+  const sim = createSim({ table, holes, props: clutter.props, zones: clutter.zones, band: walls ? false : band, walls });
   const listeners = {};
   const state = {
     phase: "idle",            // idle | aiming | sim | settled | over
@@ -67,7 +68,8 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
       sim.addPen(penById(spot.penId), {
         uid, ownerId: spot.ownerId ?? null,
         x: spot.x, y: spot.y, angle: spot.angle,
-        sticker: owner ? owner.sticker : null
+        sticker: owner ? owner.sticker : null,
+        team: owner && owner.team != null ? owner.team : null
       });
       if (spot.target) targetUids.add(uid);
     }
@@ -322,6 +324,8 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
           emit("fall", {
             type: "fall", uid: id, ownerId: id, cause: "edge",
             penId: b.getUserData().penId,
+            sticker: b.getUserData().sticker,
+            team: b.getUserData().team,
             x: p.x, y: p.y, angle: b.getAngle(), vx: 0, vy: 0.8, w: 2,
             player: byId.get(id)
           });

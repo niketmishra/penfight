@@ -63,6 +63,12 @@ function takeTurn(match, bot) {
   const myPos = me.getPosition();
   const myPen = penById(bot.penId);
 
+  // Inside the wooden frame the only way out is a hole, so "how close to
+  // falling" means distance to a pocket along the push line, not the edge.
+  const walls = match.sim.walls;
+  const exitAlong = (x, y, dx, dy) =>
+    walls ? rayToHole(match.sim.holes, x, y, dx, dy) : rayToEdge(table, x, y, dx, dy);
+
   let best = null;
   match.sim.eachPen((uid, data, x, y) => {
     if (uid === bot.id) return;
@@ -72,13 +78,13 @@ function takeTurn(match, bot) {
     const dist = Math.hypot(dx, dy) || 0.001;
     const dirX = dx / dist, dirY = dy / dist;
     // How close is the target to falling if pushed along this line?
-    const exitDist = rayToEdge(table, x, y, dirX, dirY);
-    const edgeBonus = Math.max(0, 1.6 - exitDist) * 0.9;
+    const exitDist = exitAlong(x, y, dirX, dirY);
+    const edgeBonus = Math.max(0, 1.6 - Math.min(exitDist, 99)) * 0.9;
     // Would this shot carry me off too? Stopping distance at full send.
     const a = PHYS.fricDecel * myPen.linDampMult * (table.frictionMult || 1);
     const vMax = J_MAX / myPen.mass;
     const stopDist = (vMax * vMax) / (2 * a);
-    const myExit = rayToEdge(table, myPos.x, myPos.y, dirX, dirY);
+    const myExit = exitAlong(myPos.x, myPos.y, dirX, dirY);
     const selfRisk = stopDist > myExit ? bot.caution * Math.min(1, dist / Math.max(0.001, myExit)) : 0;
     const score = 1.5 / dist + edgeBonus - selfRisk;
     if (!best || score > best.score) best = { score, x, y, dist, dirX, dirY };
@@ -94,9 +100,11 @@ function takeTurn(match, bot) {
   // Impulse: enough to reach the target and carry it toward the edge.
   // Aiming through the target, not just at it, is what ends duels.
   const a = PHYS.fricDecel * myPen.linDampMult * (table.frictionMult || 1);
-  const carry = Math.min(3.5, rayToEdge(table, best.x, best.y, dx, dy) * 0.8 + 0.5);
+  const carry = Math.min(3.5, exitAlong(best.x, best.y, dx, dy) * 0.8 + 0.5);
   const powB = bot.powBase || 1.15, powS = bot.powSpread ?? 0.25;
-  const bandFactor = match.sim.band ? 1.15 : 1;   // commit through the rubber band
+  // Commit through the rubber band; inside the wooden frame nothing falls
+  // off the edge, so bots swing free.
+  const bandFactor = match.sim.band || match.sim.walls ? 1.15 : 1;
   const vNeed = Math.sqrt(2 * a * (best.dist + carry)) * (powB + Math.random() * powS) * bandFactor;
   // physics multiplies J by (0.4 + 0.6 * mass); invert that to hit vNeed
   const massComp = 0.4 + 0.6 * myPen.mass;
@@ -106,6 +114,19 @@ function takeTurn(match, bot) {
     dx, dy, J,
     off: gauss() * 0.18
   });
+}
+
+// Distance along a ray until it crosses a pocket, Infinity if it misses all.
+function rayToHole(holes, x, y, dx, dy) {
+  let min = Infinity;
+  for (const h of holes || []) {
+    const ox = h.x - x, oy = h.y - y;
+    const t = ox * dx + oy * dy;              // closest approach along the ray
+    if (t <= 0) continue;
+    const cx = x + dx * t, cy = y + dy * t;
+    if (Math.hypot(h.x - cx, h.y - cy) < h.r * 0.85 && t < min) min = t;
+  }
+  return min;
 }
 
 function gauss() {

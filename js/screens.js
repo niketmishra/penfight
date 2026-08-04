@@ -9,9 +9,31 @@ const $ = id => document.getElementById(id);
 const SCREENS = ["s-home", "s-mode", "s-pass", "s-picker", "s-join", "s-lobby", "s-academy", "s-payout", "s-victory"];
 const CHIP_COLORS = ["#3d7bff", "#ff5470", "#ffd166", "#4ade80", "#c084fc", "#fb923c"];
 
+// Screen router with a short exit animation. A leaving screen fades for
+// 140ms before display:none; arriving screens keep their pop-in.
+const leaveTimers = new Map();
+let showHook = null;
+export function onShow(fn) { showHook = fn; }
+
 export function show(name) {
-  for (const id of SCREENS) $(id).classList.toggle("hidden", id !== name);
+  for (const id of SCREENS) {
+    const el = $(id);
+    const arriving = id === name;
+    if (arriving) {
+      clearTimeout(leaveTimers.get(id));
+      leaveTimers.delete(id);
+      el.classList.remove("hidden", "leaving");
+    } else if (!el.classList.contains("hidden") && !el.classList.contains("leaving")) {
+      el.classList.add("leaving");
+      leaveTimers.set(id, setTimeout(() => {
+        el.classList.remove("leaving");
+        el.classList.add("hidden");
+        leaveTimers.delete(id);
+      }, 140));
+    }
+  }
   $("hud").classList.toggle("hidden", name !== null);
+  if (showHook) showHook(name);
 }
 
 export function chipColor(seat) { return CHIP_COLORS[seat % CHIP_COLORS.length]; }
@@ -36,6 +58,47 @@ export function buildModeCards(modes, selectedId, onSelect, playerLevel = 99) {
   }
 }
 
+// Mini desk painting so the picker shows the actual desk, not just a name.
+function drawDeskThumb(cv, t) {
+  const g = cv.getContext("2d");
+  const w = cv.width, h = cv.height;
+  const th = t.theme;
+  g.fillStyle = th.floor || "#0a0c14";
+  g.fillRect(0, 0, w, h);
+  const pad = 5;
+  const grad = g.createLinearGradient(pad, pad, w - pad, h - pad);
+  grad.addColorStop(0, th.top[0]);
+  grad.addColorStop(0.5, th.top[1]);
+  grad.addColorStop(1, th.top[2]);
+  g.fillStyle = grad;
+  g.strokeStyle = th.edge || "rgba(20,10,2,0.8)";
+  g.lineWidth = 2;
+  if (t.shape === "round") {
+    g.beginPath();
+    g.arc(w / 2, h / 2, Math.min(w, h) / 2 - pad, 0, Math.PI * 2);
+    g.fill(); g.stroke();
+  } else {
+    const ar = t.w / t.h;
+    let dw = w - pad * 2, dh = dw / ar;
+    if (dh > h - pad * 2) { dh = h - pad * 2; dw = dh * ar; }
+    roundRect(g, (w - dw) / 2, (h - dh) / 2, dw, dh, 4);
+    g.fill(); g.stroke();
+  }
+  if (t.seam) {
+    g.strokeStyle = "rgba(20,10,2,0.5)";
+    g.lineWidth = 1.2;
+    g.beginPath(); g.moveTo(w / 2, pad + 2); g.lineTo(w / 2, h - pad - 2); g.stroke();
+  }
+  if (th.planks > 1) {
+    g.strokeStyle = "rgba(40,22,8,0.3)";
+    g.lineWidth = 0.8;
+    for (let i = 1; i < Math.min(th.planks, 4); i++) {
+      const px = pad + ((w - pad * 2) * i) / Math.min(th.planks, 4);
+      g.beginPath(); g.moveTo(px, pad + 2); g.lineTo(px, h - pad - 2); g.stroke();
+    }
+  }
+}
+
 export function buildTableChips(tables, selectedId, onSelect, playerLevel = 99) {
   const wrap = $("table-chips");
   wrap.innerHTML = "";
@@ -44,14 +107,19 @@ export function buildTableChips(tables, selectedId, onSelect, playerLevel = 99) 
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "table-chip" + (t.id === selectedId && open ? " sel" : "") + (open ? "" : " locked");
-    if (open) chip.textContent = t.name;
-    else chip.innerHTML = `<span class="icn">${ICONS.lock}</span> ${esc(t.name)} · Lv ${t.unlock}`;
+    const cv = document.createElement("canvas");
+    cv.width = 72; cv.height = 48;
+    drawDeskThumb(cv, t);
+    chip.appendChild(cv);
+    const label = document.createElement("span");
+    if (open) label.textContent = t.name;
+    else label.innerHTML = `<span class="icn">${ICONS.lock}</span> Lv ${t.unlock}`;
+    chip.appendChild(label);
     if (open) chip.addEventListener("click", () => {
       wrap.querySelectorAll(".table-chip").forEach(c => c.classList.remove("sel"));
       chip.classList.add("sel");
       onSelect(t);
     });
-    else chip.classList.add("locked");
     wrap.appendChild(chip);
   }
 }
@@ -105,11 +173,16 @@ export function buildAcademyGrid(levels, progress, unlockedFn, onPick) {
     btn.className = "level-btn"
       + (stars >= 3 ? " full" : stars > 0 ? " done" : "")
       + (unlocked ? "" : " locked");
-    btn.innerHTML = `${lv.id}<span class="stars">${"★".repeat(stars)}${"☆".repeat(Math.max(0, 3 - stars)) }</span>`;
+    const starRow = new Array(3).fill(0)
+      .map((_, i) => `<span class="icn">${i < stars ? ICONS.star : ICONS.starEmpty}</span>`).join("");
+    btn.innerHTML = `<b>${lv.id}</b><span class="stars">${starRow}</span>`;
     if (unlocked) btn.addEventListener("click", () => onPick(lv));
     wrap.appendChild(btn);
   }
-  $("academy-progress").textContent = `${total} / ${levels.length * 3} stars`;
+  const max = levels.length * 3;
+  $("academy-progress").innerHTML = `
+    <span>${total} / ${max} stars</span>
+    <div class="xp-track wide"><div class="xp-fill" style="width:${Math.round((total / max) * 100)}%"></div></div>`;
 }
 
 // ---------- pen picker ----------
@@ -155,34 +228,20 @@ export function buildPicker(selectedId, onSelect, playerLevel = 99) {
 function showPenInfo(pen, unlockedNow = true) {
   $("pen-name").textContent = pen.name + (unlockedNow ? "" : " (locked)");
   $("pen-inspo").textContent = pen.inspo;
-  $("pen-trait").textContent = pen.trait;
+  $("pen-trait").innerHTML = `<span class="info-chip">${esc(pen.trait)}</span>`;
   $("pen-quirk").innerHTML = pen.quirk
-    ? `<b style="color:var(--accent-2)">${esc(pen.quirk.name)}:</b> ${esc(pen.quirk.text)}`
+    ? `<span class="info-chip quirk"><b>${esc(pen.quirk.name)}</b> ${esc(pen.quirk.text)}</span>`
     : "";
   const stats = statBars(pen);
   const labels = { weight: "Weight", glide: "Glide", spin: "Spin", reach: "Reach" };
   $("pen-stats").innerHTML = Object.entries(stats).map(([k, v]) => `
     <div class="stat-row"><span>${labels[k]}</span>
-      <div class="stat-track"><div class="stat-fill" style="width:${Math.round(8 + v * 92)}%"></div></div>
+      <div class="stat-track"><div class="stat-fill" style="width:8%" data-w="${Math.round(8 + v * 92)}"></div></div>
     </div>`).join("");
-}
-
-export function buildStickerRow(stickers, selectedId, playerLevel, onSelect) {
-  const wrap = $("sticker-row");
-  wrap.innerHTML = "";
-  for (const st of stickers) {
-    const open = (st.unlock || 0) <= playerLevel;
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "sticker-chip" + (st.id === selectedId ? " sel" : "") + (open ? "" : " locked");
-    chip.textContent = open ? st.name : `${st.name} · Lv ${st.unlock}`;
-    chip.addEventListener("click", () => {
-      wrap.querySelectorAll(".sticker-chip").forEach(c => c.classList.remove("sel"));
-      chip.classList.add("sel");
-      onSelect(st);
-    });
-    wrap.appendChild(chip);
-  }
+  // Bars start collapsed, then animate to their value via the CSS transition.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    $("pen-stats").querySelectorAll(".stat-fill").forEach(f => { f.style.width = f.dataset.w + "%"; });
+  }));
 }
 
 // Simplified vertical pen for cards, tip pointing up.
@@ -243,11 +302,14 @@ export function renderLobby(players, myId, hostId, opts = {}) {
     const li = document.createElement("li");
     li.className = (p.ready ? "ready" : "") + (p.connected === false ? " gone" : "");
     const pen = PENS.find(x => x.id === p.penId);
+    const state = p.connected === false ? '<span class="state">away</span>'
+      : p.ready ? `<span class="state ok"><span class="icn">${ICONS.check}</span> ready</span>`
+      : '<span class="state">picking</span>';
     li.innerHTML = `
       <span class="dot" style="background:${chipColor(p.seat)}"></span>
-      <span class="who">${esc(p.name)}${p.id === myId ? " (you)" : ""}${p.id === hostId ? " 👑" : ""}
+      <span class="who">${esc(p.name)}${p.id === myId ? " (you)" : ""}${p.id === hostId ? `<span class="icn host-crown">${ICONS.crown}</span>` : ""}
         <span class="pen-tag">· ${pen ? esc(pen.name) : ""}</span></span>
-      <span class="state">${p.connected === false ? "away" : p.ready ? "ready" : "picking"}</span>`;
+      ${state}`;
     ul.appendChild(li);
   }
   const me = players.find(p => p.id === myId);
@@ -307,10 +369,13 @@ export function comment(text) {
   setTimeout(() => { el.remove(); if (commEl === el) commEl = null; }, 2400);
 }
 
-export function floatEmoji(emoji) {
+// Reaction floater: takes an icon key (flame/laugh/shock/clap). Unknown
+// keys (old clients sending raw emoji) fall back to plain text.
+export function floatEmoji(key) {
   const el = document.createElement("div");
   el.className = "femoji";
-  el.textContent = emoji;
+  if (ICONS[key]) el.innerHTML = `<span class="icn">${ICONS[key]}</span>`;
+  else el.textContent = key;
   el.style.left = 12 + Math.random() * 70 + "vw";
   el.style.bottom = "18vh";
   $("float-emoji").appendChild(el);
@@ -336,12 +401,39 @@ export function showPayout({ title, sub, rows, continueLabel, showContinue = tru
   show("s-payout");
 }
 
-export function showVictory(title, sub, iconName = "trophy") {
+// opts.standings: [{name, isMe, kos, dead}] ranked best first.
+// opts.xp: {gained, frac} animates the earned-XP bar.
+export function showVictory(title, sub, iconName = "trophy", opts = {}) {
   const el = $("victory-icon");
   el.innerHTML = ICONS[iconName] || ICONS.trophy;
   el.classList.toggle("lost", iconName === "skull");
   $("victory-title").textContent = title;
   $("victory-sub").textContent = sub;
+  const st = $("victory-standings");
+  if (opts.standings && opts.standings.length > 1) {
+    st.classList.remove("hidden");
+    st.innerHTML = opts.standings.map((r, i) => `
+      <div class="payout-row${r.isMe ? " me" : ""}${r.dead ? " out" : ""}">
+        <span class="pos">${i + 1}</span>
+        <span class="who">${esc(r.name)}${r.isMe ? " (you)" : ""}</span>
+        ${r.kos ? `<span class="kos"><span class="icn">${ICONS.skull}</span>${r.kos}</span>` : ""}
+      </div>`).join("");
+  } else {
+    st.classList.add("hidden");
+    st.innerHTML = "";
+  }
+  const xp = $("victory-xp");
+  if (opts.xp) {
+    xp.classList.remove("hidden");
+    xp.querySelector("span").textContent = `+${opts.xp.gained} XP`;
+    const fill = xp.querySelector(".xp-fill");
+    fill.style.width = "0%";
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      fill.style.width = Math.round(Math.min(1, opts.xp.frac) * 100) + "%";
+    }));
+  } else {
+    xp.classList.add("hidden");
+  }
   $("btn-share").classList.add("hidden");   // daily unhides it after
   show("s-victory");
 }

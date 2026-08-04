@@ -684,3 +684,72 @@ input:focus { border-color: var(--gold); }
 @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-12px); } }
 #victory-title { font-size: 30px; }
 #victory-sub { color: var(--dim); margin: 0; }
+
+
+/* ---------- 3.1: band toggle, done button, ko stamp, pot, vignette ---------- */
+
+#band-toggle { margin-top: 2px; }
+#band-toggle.on { border-color: #ba4a3a; color: var(--ink); background: rgba(186, 74, 58, 0.12); }
+
+#btn-done {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom) + 64px);
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+  flex: none;
+  padding: 12px 26px 14px;
+  font-size: 15px;
+  animation: screen-in 0.25s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+#pot-ribbon {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 64px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  color: var(--gold);
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(16, 20, 34, 0.85);
+  border: 1px solid rgba(242, 177, 53, 0.35);
+  white-space: nowrap;
+}
+
+#ko-stamp {
+  position: fixed;
+  top: 38%;
+  left: 50%;
+  z-index: 45;
+  font-family: var(--display);
+  font-size: clamp(54px, 18vw, 90px);
+  color: var(--hot);
+  -webkit-text-stroke: 3px #2a0910;
+  text-shadow: 0 8px 30px rgba(255, 84, 112, 0.5);
+  pointer-events: none;
+  animation: ko-in 0.7s cubic-bezier(0.15, 1.6, 0.4, 1) forwards;
+}
+@keyframes ko-in {
+  0% { opacity: 0; transform: translate(-50%, -50%) rotate(-14deg) scale(2.4); }
+  22% { opacity: 1; transform: translate(-50%, -50%) rotate(-8deg) scale(1); }
+  80% { opacity: 1; transform: translate(-50%, -50%) rotate(-8deg) scale(1.02); }
+  100% { opacity: 0; transform: translate(-50%, -50%) rotate(-8deg) scale(1.1); }
+}
+
+#danger-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(255, 60, 80, 0.28) 100%);
+  animation: vignette-pulse 1.2s ease forwards;
+}
+@keyframes vignette-pulse {
+  0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 0; }
+}
+
+.payout-row .kos { display: inline-flex; align-items: center; gap: 3px; color: var(--dim); font-size: 12px; font-weight: 700; }
+.payout-row .kos .icn { width: 1em; height: 1em; color: var(--hot); }

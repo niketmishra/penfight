@@ -40,7 +40,9 @@ const store = {
   get bots() { return Math.min(5, Math.max(1, Number(localStorage.getItem("pf_bots")) || 3)); },
   set bots(v) { localStorage.setItem("pf_bots", String(v)); },
   get diff() { return localStorage.getItem("pf_diff") || "normal"; },
-  set diff(v) { localStorage.setItem("pf_diff", v); }
+  set diff(v) { localStorage.setItem("pf_diff", v); },
+  get band() { return localStorage.getItem("pf_band") !== "off"; },
+  set band(v) { localStorage.setItem("pf_band", v ? "on" : "off"); }
 };
 const myId = store.id;
 const mySticker = () => save.settings.sticker || null;
@@ -60,7 +62,7 @@ let turnDeadline = null;
 let botsCtl = null;
 
 // What the player chose on the mode screen.
-const flow = { kind: null, modeId: "classic", tableId: "classroom", teamSize: 4 };
+const flow = { kind: null, modeId: "classic", tableId: "classroom", teamSize: 4, band: true };
 let passNames = ["", ""];
 let lastPassNames = null;
 
@@ -147,11 +149,14 @@ function startPlacing(playerId, ms, { online = false } = {}) {
   renderer.setHighlight(playerId, "#f2b135");
   const p = match.byId.get(playerId);
   ui.setTurnBanner(playerId === myId ? "Place your pen!" : `${p ? p.name : ""}, place your pen`, true);
+  const localControl = playerId === myId || mode === "pass";
+  $("btn-done").classList.toggle("hidden", !localControl);
 }
 
 function finishPlacing() {
   clearTimeout(placement.timer);
   placeDrag = null;
+  $("btn-done").classList.add("hidden");
   if (placement.seq.length) {
     const next = placement.seq.shift();
     const np = match ? match.byId.get(next) : null;
@@ -213,6 +218,47 @@ canvas.addEventListener("pointerup", () => {
   placeDrag = null;
 });
 
+$("btn-done").addEventListener("click", () => {
+  if (!placement.active || !match) return;
+  sfx.tick();
+  if (session && placement.playerId === myId) {
+    const b = match.sim.getBody(myId);
+    if (b) {
+      const p = b.getPosition();
+      session.sendPlaceDone(p.x, p.y, b.getAngle());
+    }
+  }
+  finishPlacing();
+});
+
+function showKoStamp(text) {
+  const el = $("ko-stamp");
+  el.textContent = text;
+  el.classList.remove("hidden");
+  el.style.animation = "none";
+  void el.offsetWidth;   // restart the CSS animation
+  el.style.animation = "";
+  clearTimeout(showKoStamp._t);
+  showKoStamp._t = setTimeout(() => el.classList.add("hidden"), 750);
+}
+
+function flashVignette() {
+  const el = $("danger-vignette");
+  el.classList.remove("hidden");
+  el.style.animation = "none";
+  void el.offsetWidth;
+  el.style.animation = "";
+  clearTimeout(flashVignette._t);
+  flashVignette._t = setTimeout(() => el.classList.add("hidden"), 1250);
+}
+
+function setPotRibbon(round, pot) {
+  const el = $("pot-ribbon");
+  if (pot == null) { el.classList.add("hidden"); return; }
+  el.textContent = `Round ${round} \u00b7 Pot \u20b9${pot}`;
+  el.classList.remove("hidden");
+}
+
 // ---------- match wiring (both modes) ----------
 
 function matName(penId) {
@@ -257,6 +303,11 @@ function wireMatch(m, players, opts = {}) {
       renderer.killCam(ev.x, ev.y);
       sfx.whoomp();
       enterSlowMo(700);
+      if (ev.player) showKoStamp(ev.cause === "hole" ? "DOOB GAYA!" : "KO!");
+    }
+    if (ev.brokeBand && ev.player) {
+      renderer.fx.burst(ev.x, ev.y, 4, "spark");
+      ui.comment(commentate("bandBreak"));
     }
 
     const striker = m.state.currentId;
@@ -292,6 +343,19 @@ function wireMatch(m, players, opts = {}) {
   m.on("airborne", ev => {
     sfx.whoosh(1.2);
     renderer.fx.burst(ev.x, ev.y, 2.5, "spark");
+  });
+
+  let lastBandAt = 0;
+  m.on("bandCatch", ev => {
+    sfx.boing();
+    sfx.vibrate(35);
+    renderer.bandHit(ev.x, ev.y);
+    renderer.fx.burst(ev.x, ev.y, 1.5, "dust");
+    const nowT = Date.now();
+    if (nowT - lastBandAt > 2800) {
+      lastBandAt = nowT;
+      ui.comment(commentate("bandSave"));
+    }
   });
   m.on("land", ev => {
     renderer.fx.burst(ev.x, ev.y, 2, "dust");
@@ -347,6 +411,7 @@ function wireMatch(m, players, opts = {}) {
     if (nowT - lastTeeterAt < 3500) return;
     lastTeeterAt = nowT;
     sfx.oooh();
+    if (ev.ownerId === myId && !save.settings.reduceMotion) flashVignette();
     ui.comment(commentate("teeter", { name: ev.ownerId && m.byId.get(ev.ownerId) ? m.byId.get(ev.ownerId).name : "" }));
   };
 
@@ -392,6 +457,7 @@ function wireMatch(m, players, opts = {}) {
     sfx.ambience(false);
     renderer.camHome();
     renderer.setStorm(0);
+    setPotRibbon(null, null);
     timeScale = 1;
     const me = m.byId.get(myId);
     const iWon = winnerId === myId || (winnerTeam != null && me && me.team === winnerTeam);
@@ -455,7 +521,7 @@ function startPracticeRound() {
     players = seriesRoster.filter(p => anteInfo.participants.includes(p.id));
     seriesRoster.forEach(p => { p.balance = series.balance(p.id); });
   }
-  match = createMatch({ players, autoAdvance: true, mode: flow.modeId, tableId: flow.tableId });
+  match = createMatch({ players, autoAdvance: true, mode: flow.modeId, tableId: flow.tableId, band: flow.band });
   renderer.setTable(match.table, { holes: match.holes });
   wireMatch(match, players);
   botsCtl = attachBots(match);
@@ -464,7 +530,9 @@ function startPracticeRound() {
     startPlacing(myId, 15000);
   });
   if (anteInfo) {
+    sfx.clink();
     setTimeout(() => ui.comment(`Round ${series.roundNumber} · Daav ₹${anteInfo.stake}`), 1300);
+    setPotRibbon(series.roundNumber, anteInfo.stake * anteInfo.participants.length);
   }
   const myTeam = modeCfg.teams ? teamOfSeat(0) : null;
   match.on("over", ({ winner, winnerTeam }) => {
@@ -488,13 +556,16 @@ function showRoundPayout(opts = {}) {
   const meBroke = series.balance(myId) <= 0;
   const localKind = seriesKind !== "online";
   const done = series.over() || (seriesKind === "practice" && meBroke);
+  const kills = match && match.state ? match.state.kills : {};
   const rows = series.standings().map(s => {
     const p = seriesRoster.find(q => q.id === s.id);
     return {
       name: p ? p.name : "?", balance: s.balance,
-      delta: deltas[s.id] ?? 0, isMe: s.id === myId, out: s.balance <= 0
+      delta: deltas[s.id] ?? 0, isMe: s.id === myId, out: s.balance <= 0,
+      kos: kills[s.id] || 0
     };
   });
+  sfx.clinkCascade(4);
   const anyBroke = series.solvent().length < seriesRoster.length;
   const onlineDone = seriesKind === "online" && anyBroke;
   if (done || onlineDone) {
@@ -549,7 +620,7 @@ function startPassRound() {
     players = seriesRoster.filter(p => anteInfo.participants.includes(p.id));
     seriesRoster.forEach(p => { p.balance = series.balance(p.id); });
   }
-  match = createMatch({ players, autoAdvance: true, mode: flow.modeId, tableId: flow.tableId });
+  match = createMatch({ players, autoAdvance: true, mode: flow.modeId, tableId: flow.tableId, band: flow.band });
   renderer.setTable(match.table, { holes: match.holes });
   wireMatch(match, players, { passPlay: true });
   match.on("over", ({ winner, winnerTeam }) => {
@@ -571,7 +642,9 @@ function startPassRound() {
     ui.showPassOverlay(fp.name, "Place your pen, then get ready");
   });
   if (anteInfo) {
+    sfx.clink();
     setTimeout(() => ui.comment(`Round ${series.roundNumber} · Daav ₹${anteInfo.stake}`), 1300);
+    setPotRibbon(series.roundNumber, anteInfo.stake * anteInfo.participants.length);
   }
   ui.show(null);
   ui.setTimer(null);
@@ -617,7 +690,8 @@ function startLevel(lv) {
   match = createMatch({
     players, autoAdvance: true, mode: "academy",
     tableId: lv.tableId || "classroom", flickLimit: lv.flickLimit,
-    props: lv.props || [], zones: lv.zones || [], holes: lv.holes || []
+    props: lv.props || [], zones: lv.zones || [], holes: lv.holes || [],
+    band: false
   });
   renderer.setTable(match.table, { holes: match.holes });
   wireMatch(match, players);
@@ -674,7 +748,8 @@ function startDaily() {
   const players = setup.players;
   match = createMatch({
     players, autoAdvance: true, mode: "daily",
-    tableId: setup.tableId, props: setup.props, zones: setup.zones
+    tableId: setup.tableId, props: setup.props, zones: setup.zones,
+    band: true
   });
   renderer.setTable(match.table, { holes: match.holes });
   wireMatch(match, players);
@@ -722,7 +797,8 @@ async function startOnline(kind, code) {
   const me = {
     playerId: myId, name: myName(), penId: store.pen, sticker: mySticker(),
     modeId: kind === "create" ? flow.modeId : undefined,
-    tableId: kind === "create" ? flow.tableId : undefined
+    tableId: kind === "create" ? flow.tableId : undefined,
+    band: kind === "create" ? flow.band : undefined
   };
   const { createRoomSession, joinRoomSession } = await import("./room.js");
   session = kind === "create"
@@ -822,12 +898,14 @@ function beginOnlineMatch({ order, layout, props = [], zones = [] }) {
     seriesRoster = players;
     const ante = series.anteAll();
     players.forEach(p => { p.balance = series.balance(p.id); });
+    sfx.clink();
     setTimeout(() => ui.comment(`Round ${series.roundNumber} · Daav ₹${ante.stake}`), 1300);
+    setPotRibbon(series.roundNumber, ante.stake * ante.participants.length);
   }
   match = createMatch({
     players, autoAdvance: false,
     mode: session.modeId, tableId: session.tableId,
-    props, zones
+    props, zones, band: session.band !== false
   });
   renderer.setTable(match.table, { holes: match.holes });
   wireMatch(match, players);
@@ -865,6 +943,8 @@ function cleanupMatch(opts = {}) {
   renderer.setStorm(0);
   renderer.camHome();
   sfx.ambience(false);
+  setPotRibbon(null, null);
+  $("btn-done").classList.add("hidden");
   ui.setTimer(null);
 }
 
@@ -971,6 +1051,8 @@ function openModeSelect(kind) {
   if ((tableById(flow.tableId).unlock || 0) > lvl) flow.tableId = "classroom";
   ui.buildModeCards(list, flow.modeId, m => { flow.modeId = m.id; syncModeRows(); }, lvl);
   ui.buildTableChips(TABLES, flow.tableId, t => { flow.tableId = t.id; }, lvl);
+  flow.band = store.band;
+  syncBandToggle();
   $("mode-title").textContent =
     kind === "create" ? "Set the room rules" :
     kind === "pass" ? "One phone, full bench" : "Pick your battle";
@@ -982,6 +1064,17 @@ function syncModeRows() {
   const m = modeById(flow.modeId);
   $("teamsize-row").classList.toggle("hidden", !(m.teams && flow.kind !== "create"));
 }
+
+function syncBandToggle() {
+  const el = $("band-toggle");
+  el.classList.toggle("on", flow.band);
+  el.textContent = flow.band ? "Rubber band edges: ON" : "Rubber band edges: OFF";
+}
+$("band-toggle").addEventListener("click", () => {
+  flow.band = !flow.band;
+  store.band = flow.band;
+  syncBandToggle();
+});
 
 document.querySelectorAll(".size-btn").forEach(btn => {
   btn.addEventListener("click", () => {

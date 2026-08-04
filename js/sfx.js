@@ -104,6 +104,43 @@ export function oooh() {
   nb.start(t);
 }
 
+// Rubber band twang: a pitch-bent pluck.
+export function boing() {
+  if (!unlocked || !ac || muted) return;
+  const t = now();
+  const osc = ac.createOscillator();
+  const g = ac.createGain();
+  osc.type = "triangle";
+  osc.frequency.setValueAtTime(180, t);
+  osc.frequency.exponentialRampToValueAtTime(90, t + 0.06);
+  osc.frequency.exponentialRampToValueAtTime(150, t + 0.14);
+  osc.frequency.exponentialRampToValueAtTime(105, t + 0.24);
+  g.gain.setValueAtTime(0.28, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+  osc.connect(g).connect(ac.destination);
+  osc.start(t); osc.stop(t + 0.32);
+}
+
+// Coin clink for antes and payouts.
+export function clink(delay = 0) {
+  if (!unlocked || !ac || muted) return;
+  const t = now() + delay;
+  for (const [f, d] of [[2650, 0.09], [3970, 0.13]]) {
+    const osc = ac.createOscillator();
+    const g = ac.createGain();
+    osc.type = "sine";
+    osc.frequency.value = f;
+    g.gain.setValueAtTime(0.09, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + d);
+    osc.connect(g).connect(ac.destination);
+    osc.start(t); osc.stop(t + d + 0.02);
+  }
+}
+
+export function clinkCascade(n = 4) {
+  for (let i = 0; i < n; i++) clink(i * 0.09);
+}
+
 // Kill-cam slow-mo entry.
 export function whoomp() {
   if (!unlocked || !ac || muted) return;

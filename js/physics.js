@@ -21,6 +21,9 @@ export const PHYS = {
   maxOmega: 42,              // sanity cap on spin, rad/s
   magnusK: 0.008,            // spin curve strength
   magnusCap: 6.0,            // max lateral accel from spin, units/s^2
+  bandBreak: 4.5,            // momentum needed to snap through the rubber band
+  bandRestN: 0.42,           // band bounce, normal component
+  bandRestT: 0.85,           // band bounce, tangential component
   airborneImpulse: 2.3,      // tip hits above this launch the victim
   airborneImpulseHeavy: 1.5, // launcher pens (metal) need less
   airborneTime: 0.42,        // seconds of flight
@@ -38,7 +41,34 @@ export function flickImpulse(pen, J) {
   return J * (PHYS.massComp[0] + PHYS.massComp[1] * pen.mass) * (pen.flickMult || 1);
 }
 
-export function createSim({ table = tableById("classroom"), holes = [], zones = [], props = [] } = {}) {
+// Reflect a pen that ran into the rubber band. Returns the bounced velocity
+// and a position nudged back inside; shared by the live sim and the ghost
+// trajectory so the preview never lies about the band either.
+export function bandReflect(table, x, y, vx, vy) {
+  let nx = 0, ny = 0, cx = x, cy = y;
+  if (table.shape === "round") {
+    const d = Math.hypot(x, y) || 0.001;
+    nx = -x / d; ny = -y / d;
+    const inR = table.r - 0.05;
+    cx = (x / d) * inR; cy = (y / d) * inR;
+  } else {
+    const hx = table.w / 2, hy = table.h / 2;
+    if (Math.abs(x) > hx) { nx = -Math.sign(x); cx = Math.sign(x) * (hx - 0.05); }
+    if (Math.abs(y) > hy) { ny = -Math.sign(y); cy = Math.sign(y) * (hy - 0.05); }
+    const nl = Math.hypot(nx, ny) || 1;
+    nx /= nl; ny /= nl;
+  }
+  const vn = vx * nx + vy * ny;           // toward-inside component (negative when leaving)
+  const vnx = vn * nx, vny = vn * ny;
+  const vtx = vx - vnx, vty = vy - vny;
+  return {
+    x: cx, y: cy,
+    vx: vtx * PHYS.bandRestT - vnx * PHYS.bandRestN,
+    vy: vty * PHYS.bandRestT - vny * PHYS.bandRestN
+  };
+}
+
+export function createSim({ table = tableById("classroom"), holes = [], zones = [], props = [], band = false } = {}) {
   const world = new pl.World({ gravity: new pl.Vec2(0, 0) });
   const bodies = new Map();     // uid -> pen body
   const statics = [];           // furniture bodies (never in snapshots)
@@ -268,25 +298,38 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
     const events = [...pendingHits, ...pendingEvents];
     pendingEvents = [];
     // A pen is gone the moment its center of mass leaves the surface or
-    // drops into a hole.
+    // drops into a hole. With the rubber band up, slow leavers get thrown
+    // back in; only real momentum snaps through.
     for (const [uid, body] of [...bodies.entries()]) {
       const p = body.getPosition();
       const offTable = !tableContains(table, p.x, p.y);
       const hole = offTable ? null : inHole(holes, p.x, p.y);
-      if (offTable || hole) {
-        const v = body.getLinearVelocity();
-        events.push({
-          type: "fall", uid,
-          cause: hole ? "hole" : "edge",
-          hole,
-          ownerId: body.getUserData().ownerId,
-          penId: body.getUserData().penId,
-          x: p.x, y: p.y, angle: body.getAngle(),
-          vx: v.x, vy: v.y, w: body.getAngularVelocity()
-        });
-        world.destroyBody(body);
-        bodies.delete(uid);
+      if (!offTable && !hole) continue;
+
+      const v = body.getLinearVelocity();
+      const pen = body.getUserData().pen;
+      const momentum = pen.mass * Math.hypot(v.x, v.y);
+      if (offTable && band && momentum < PHYS.bandBreak && !airborne.has(uid)) {
+        const r = bandReflect(table, p.x, p.y, v.x, v.y);
+        body.setTransform(new pl.Vec2(r.x, r.y), body.getAngle());
+        body.setLinearVelocity(new pl.Vec2(r.vx, r.vy));
+        events.push({ type: "bandCatch", uid, x: r.x, y: r.y, ownerId: body.getUserData().ownerId });
+        stillTime = 0;
+        continue;
       }
+
+      events.push({
+        type: "fall", uid,
+        cause: hole ? "hole" : "edge",
+        hole,
+        brokeBand: Boolean(offTable && band),
+        ownerId: body.getUserData().ownerId,
+        penId: body.getUserData().penId,
+        x: p.x, y: p.y, angle: body.getAngle(),
+        vx: v.x, vy: v.y, w: body.getAngularVelocity()
+      });
+      world.destroyBody(body);
+      bodies.delete(uid);
     }
 
     if (allStill()) stillTime += dt; else stillTime = 0;
@@ -346,7 +389,17 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
       }
       x += vx * dt; y += vy * dt;
       if (i % 6 === 0) points.push({ x, y });
-      if (!tableContains(table, x, y) || inHole(holes, x, y)) { exit = { x, y }; break; }
+      if (inHole(holes, x, y)) { exit = { x, y }; break; }
+      if (!tableContains(table, x, y)) {
+        const mom = pen.mass * Math.hypot(vx, vy);
+        if (band && mom < PHYS.bandBreak) {
+          const rr2 = bandReflect(table, x, y, vx, vy);
+          x = rr2.x; y = rr2.y; vx = rr2.vx; vy = rr2.vy;
+        } else {
+          exit = { x, y };
+          break;
+        }
+      }
     }
     return { points, end: { x, y }, exit };
   }
@@ -393,7 +446,7 @@ export function createSim({ table = tableById("classroom"), holes = [], zones = 
   }
 
   return {
-    world, bodies, statics, table, holes, zones, props, half,
+    world, bodies, statics, table, holes, zones, props, half, band,
     addPen, removePen, addProp, applyFlick, step, airborneLift, predictPath,
     isSettled, snapshot, applySnapshot, eachPen,
     resetSimClock() { simTime = 0; stillTime = 0; },

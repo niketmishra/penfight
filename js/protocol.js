@@ -30,8 +30,9 @@ const shapes = {
     && (p.mode === undefined || str(p.mode))
     && (p.tableId === undefined || str(p.tableId))
     && (p.props === undefined || Array.isArray(p.props))
-    && (p.zones === undefined || Array.isArray(p.zones)),
-  [EV.PLACE]: p => num(p.x) && num(p.y) && num(p.angle),
+    && (p.zones === undefined || Array.isArray(p.zones))
+    && (p.band === undefined || typeof p.band === "boolean"),
+  [EV.PLACE]: p => (num(p.x) && num(p.y) && num(p.angle)) || p.done === true,
   [EV.TURN_START]: p => num(p.turnIdx) && str(p.playerId) && num(p.deadlineTs),
   [EV.FLICK]: p => num(p.turnIdx) && num(p.dx) && num(p.dy) && num(p.J) && num(p.off)
     && Array.isArray(p.preStates),

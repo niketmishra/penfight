@@ -45,6 +45,7 @@ async function connect(code, me, amCreator) {
     status: "lobby",
     modeId: me.modeId || "classic",
     tableId: me.tableId || "classroom",
+    band: me.band !== false,
     match: null,
     on(ev, cb) { (listeners[ev] = listeners[ev] || []).push(cb); },
     get isHost() { return s.hostId === s.playerId; },
@@ -82,6 +83,18 @@ async function connect(code, me, amCreator) {
   let settleWatch = null;
   let lastTurn = { turnIdx: -1, playerId: null };
   let rematchVotes = new Set();
+  const placeDone = new Set();
+  let roundOpened = false;
+  let startTimer = null;
+
+  // First turn of a round fires exactly once: early when everyone is done
+  // placing, or from the fallback clock.
+  function openRound() {
+    if (roundOpened || !s.isHost || s.status !== "playing") return;
+    roundOpened = true;
+    clearTimeout(startTimer);
+    hostNextTurn();
+  }
 
   function send(event, payload) {
     channel.send({ type: "broadcast", event, payload: { from: s.playerId, ...payload } });
@@ -201,6 +214,9 @@ async function connect(code, me, amCreator) {
         s.status = "playing";
         if (payload.mode) s.modeId = payload.mode;
         if (payload.tableId) s.tableId = payload.tableId;
+        if (payload.band !== undefined) s.band = payload.band;
+        placeDone.clear();
+        roundOpened = false;
         rematchVotes = new Set();
         lastFallenId = null;
         pendingSkips.clear();
@@ -247,7 +263,14 @@ async function connect(code, me, amCreator) {
         emit("host", s.hostId);
         break;
       case EV.PLACE:
-        emit("place", { from, x: payload.x, y: payload.y, angle: payload.angle });
+        if (typeof payload.x === "number") {
+          emit("place", { from, x: payload.x, y: payload.y, angle: payload.angle });
+        }
+        if (payload.done === true && s.isHost) {
+          placeDone.add(from);
+          const waiting = s.players.filter(p => p.connected && !placeDone.has(p.id));
+          if (!waiting.length) openRound();
+        }
         break;
       case EV.EMOJI:
         emit("emoji", { from, emoji: payload.emoji });
@@ -392,6 +415,14 @@ async function connect(code, me, amCreator) {
   };
   s.sendEmoji = emoji => send(EV.EMOJI, { emoji });
   s.sendPlace = (x, y, angle) => send(EV.PLACE, { x, y, angle });
+  s.sendPlaceDone = (x, y, angle) => {
+    send(EV.PLACE, { x, y, angle, done: true });
+    if (s.isHost) {
+      placeDone.add(s.playerId);
+      const waiting = s.players.filter(p => p.connected && !placeDone.has(p.id));
+      if (!waiting.length) openRound();
+    }
+  };
   s.voteRematch = () => {
     rematchVotes.add(s.playerId);
     send(EV.REMATCH, {});

@@ -26,7 +26,7 @@ export function buildModeCards(modes, selectedId, onSelect, playerLevel = 99) {
     const card = document.createElement("button");
     card.type = "button";
     card.className = "mode-card" + (m.id === selectedId && open ? " sel" : "") + (open ? "" : " locked");
-    card.innerHTML = `<span class="mi">${ICONS[m.icon] || ""}</span><span><h4>${esc(m.name)}</h4><p>${open ? esc(m.desc) : `<span class="lock-note">🔒 Unlocks at level ${m.unlock}</span>`}</p></span>`;
+    card.innerHTML = `<span class="mi">${ICONS[m.icon] || ""}</span><span><h4>${esc(m.name)}</h4><p>${open ? esc(m.desc) : `<span class="lock-note"><span class="icn">${ICONS.lock}</span> Unlocks at level ${m.unlock}</span>`}</p></span>`;
     if (open) card.addEventListener("click", () => {
       wrap.querySelectorAll(".mode-card").forEach(c => c.classList.remove("sel"));
       card.classList.add("sel");
@@ -44,7 +44,8 @@ export function buildTableChips(tables, selectedId, onSelect, playerLevel = 99) 
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "table-chip" + (t.id === selectedId && open ? " sel" : "") + (open ? "" : " locked");
-    chip.textContent = open ? t.name : `🔒 ${t.name} · Lv ${t.unlock}`;
+    if (open) chip.textContent = t.name;
+    else chip.innerHTML = `<span class="icn">${ICONS.lock}</span> ${esc(t.name)} · Lv ${t.unlock}`;
     if (open) chip.addEventListener("click", () => {
       wrap.querySelectorAll(".table-chip").forEach(c => c.classList.remove("sel"));
       chip.classList.add("sel");
@@ -131,7 +132,7 @@ export function buildPicker(selectedId, onSelect, playerLevel = 99) {
     if (!open) {
       const tag = document.createElement("span");
       tag.className = "lock-tag";
-      tag.textContent = "🔒 Lv " + pen.unlock;
+      tag.innerHTML = `<span class="icn">${ICONS.lock}</span> Lv ` + pen.unlock;
       card.appendChild(tag);
     }
     card.addEventListener("click", () => {
@@ -152,7 +153,7 @@ export function buildPicker(selectedId, onSelect, playerLevel = 99) {
 }
 
 function showPenInfo(pen, unlockedNow = true) {
-  $("pen-name").textContent = pen.name + (unlockedNow ? "" : " 🔒");
+  $("pen-name").textContent = pen.name + (unlockedNow ? "" : " (locked)");
   $("pen-inspo").textContent = pen.inspo;
   $("pen-trait").textContent = pen.trait;
   $("pen-quirk").innerHTML = pen.quirk
@@ -325,6 +326,7 @@ export function showPayout({ title, sub, rows, continueLabel, showContinue = tru
     <div class="payout-row${r.isMe ? " me" : ""}${r.out ? " out" : ""}">
       <span class="pos">${i + 1}</span>
       <span class="who">${esc(r.name)}${r.isMe ? " (you)" : ""}</span>
+      ${r.kos ? `<span class="kos"><span class="icn">${ICONS.skull}</span>${r.kos}</span>` : ""}
       ${r.out ? '<span class="kangal">KANGAL</span>' : ""}
       <span class="bal">₹${r.balance}</span>
       <span class="delta ${r.delta > 0 ? "up" : r.delta < 0 ? "down" : ""}">${r.delta > 0 ? "+" : ""}${r.delta || 0}</span>

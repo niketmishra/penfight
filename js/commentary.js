@@ -16,6 +16,8 @@ const LINES = {
     stormKill: ["Madam ne dekh liya! {name} bahar!", "Line ke bahar, seedha confiscate!"],
     win: ["LAST PEN STANDING!", "Poore desk pe raaj!", "Champion ka pen, baaki sab dabbe mein!"],
     curve: ["Googly! Kya ghoomaya!", "Spin dekho, spin!", "Yeh toh bend ho gaya!"],
+    bandSave: ["Rubber ne bacha liya!", "Band pe atka, wapas aaya!", "Itne se nahi tootega!"],
+    bandBreak: ["RUBBER TOD KE GAYA!", "Band bhi nahi rok paya!"],
     nearWin: ["Bas ek aur bacha hai!", "Final showdown!"]
   },
   en: {
@@ -32,6 +34,8 @@ const LINES = {
     stormKill: ["Caught outside the line! {name} is out!"],
     win: ["LAST PEN STANDING!", "The desk is yours!"],
     curve: ["Look at that bend!", "Spin doctor!"],
+    bandSave: ["The band caught it!", "Bounced right back in!"],
+    bandBreak: ["STRAIGHT THROUGH THE BAND!", "Snapped through!"],
     nearWin: ["One more to go!", "Final showdown!"]
   }
 };

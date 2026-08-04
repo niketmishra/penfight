@@ -20,7 +20,9 @@
 <div id="hud" class="hidden">
   <div id="turn-banner"></div>
   <div id="timer-wrap" class="hidden"><div id="timer-bar"></div></div>
+  <div id="pot-ribbon" class="hidden"></div>
   <div id="chips"></div>
+  <button id="btn-done" class="big-btn accent hidden" type="button">Done placing</button>
   <button id="btn-quit" class="ghost-btn" type="button">Leave</button>
   <div id="emoji-bar" class="hidden">
     <button class="emoji-btn" type="button">🔥</button>
@@ -63,6 +65,7 @@
     </div>
     <p class="hint">Desk</p>
     <div id="table-chips"></div>
+    <button id="band-toggle" class="table-chip" type="button"></button>
     <div class="row">
       <button id="mode-back" class="ghost-btn" type="button">Back</button>
       <button id="mode-go" class="big-btn accent" type="button">Next</button>
@@ -213,6 +216,8 @@
   </div>
 </div>
 
+<div id="ko-stamp" class="hidden">KO!</div>
+<div id="danger-vignette" class="hidden"></div>
 <div id="toasts"></div>
 <div id="float-emoji"></div>
 

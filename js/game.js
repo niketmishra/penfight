@@ -29,14 +29,14 @@ export function genLayout(players, table = tableById("classroom"), rand = Math.r
   });
 }
 
-export function createMatch({ players, autoAdvance = true, mode = "classic", tableId = "classroom", flickLimit = 0, props = null, zones = null, holes: holesOverride = null }) {
+export function createMatch({ players, autoAdvance = true, mode = "classic", tableId = "classroom", flickLimit = 0, props = null, zones = null, holes: holesOverride = null, band = false }) {
   const modeCfg = typeof mode === "string" ? modeById(mode) : mode;
   const table = tableById(tableId);
   const holes = holesOverride != null ? holesOverride : modeCfg.holes ? holesFor(table) : [];
   const clutter = props != null ? { props, zones: zones || [] }
     : modeCfg.targets ? { props: [], zones: [] }
     : genProps(table);
-  const sim = createSim({ table, holes, props: clutter.props, zones: clutter.zones });
+  const sim = createSim({ table, holes, props: clutter.props, zones: clutter.zones, band });
   const listeners = {};
   const state = {
     phase: "idle",            // idle | aiming | sim | settled | over
@@ -44,6 +44,7 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
     currentId: null,
     order: [],
     elimOrder: [],            // player ids in the order they died this round
+    kills: {},                // striker id -> KOs this round
     fallenThisTurn: [],
     skippedThisTurn: [],
     skipNext: new Set(),      // pens that miss their next turn (mounted)
@@ -196,6 +197,7 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
         if (ev.type === "hit") emit("hit", ev);
         else if (ev.type === "fall") handleFall(ev);
         else if (ev.type === "airborne") emit("airborne", { ...ev, player: byId.get(ev.uid) });
+        else if (ev.type === "bandCatch") emit("bandCatch", { ...ev, player: byId.get(ev.ownerId) });
         else if (ev.type === "land") emit("land", ev);
         else if (ev.type === "mount") {
           markSkip(ev.under);

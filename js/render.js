@@ -312,6 +312,7 @@ export function createRenderer(canvas) {
     ctx.drawImage(deskCache, 0, 0);
     ctx.setTransform(1, 0, 0, 1, shx, shy);
 
+    if (sim.band) drawBand(dt);
     if (sim.zones) for (const z of sim.zones) drawZone(z);
     if (stormInset > 0) drawStorm(tNow);
     if (placementInfo) drawPlacement(tNow);
@@ -468,6 +469,48 @@ export function createRenderer(canvas) {
 
   let placementInfo = null;
   function setPlacement(info) { placementInfo = info; }
+
+  // Rubber band around the desk edge. Catches ripple as a fading pluck ring.
+  const bandHits = [];
+  function bandHit(x, y) { bandHits.push({ x, y, life: 1 }); }
+
+  function bandPath(inset) {
+    const half = tableHalf(table);
+    if (table.shape === "round") {
+      ctx.beginPath();
+      const c = view.toScreen(0, 0);
+      ctx.arc(c.x, c.y, (half.x - inset) * eScale, 0, Math.PI * 2);
+    } else {
+      const a = view.toScreen(-half.x + inset, -half.y + inset);
+      const b = view.toScreen(half.x - inset, half.y - inset);
+      rr(ctx, a.x, a.y, b.x - a.x, b.y - a.y, 6 * dpr);
+    }
+  }
+
+  function drawBand(dt) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(186,74,58,0.85)";     // latex red-brown
+    ctx.lineWidth = 3.2 * dpr;
+    bandPath(0.09);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,180,150,0.35)";   // highlight
+    ctx.lineWidth = 1.1 * dpr;
+    bandPath(0.06);
+    ctx.stroke();
+    for (let i = bandHits.length - 1; i >= 0; i--) {
+      const h = bandHits[i];
+      h.life -= dt * 2.6;
+      if (h.life <= 0) { bandHits.splice(i, 1); continue; }
+      const s = view.toScreen(h.x, h.y);
+      const r = (0.25 + (1 - h.life) * 0.6) * eScale;
+      ctx.strokeStyle = `rgba(220,110,80,${h.life * 0.8})`;
+      ctx.lineWidth = 2.5 * dpr * h.life;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   function drawPlacement(tNow) {
     const z = placementInfo.zone;
@@ -801,6 +844,7 @@ export function createRenderer(canvas) {
     shake(mag) { shakeMag = Math.min(16, shakeMag + mag); },
     setPreview(p) { preview = p; },
     setGaram(uid, on) { if (on) garam.add(uid); else garam.delete(uid); },
+    bandHit,
     clearGaram() { garam.clear(); },
     setHighlight(uid, color) { highlightUid = uid; if (color) highlightColor = color; },
     set teeterCb(cb) { onTeeter = cb; }

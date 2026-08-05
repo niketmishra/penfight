@@ -60,6 +60,20 @@ GitHub Pages from `main`, root. All paths are relative. After changing any shipp
 - `js/voice.js` the desi voice pack (see below)
 - `supabase/schema.sql` rooms table + RLS
 
+## The Daav (betting series)
+
+Everyone starts at ₹100. Each round every player antes the stake (₹10,
+rising to ₹20 then ₹30 every three rounds, capped by the poorest player's
+all-in). Payout, from the same pot:
+
+1. **KO bounty first** — ₹5 per pen you knocked off (`KO_BOUNTY` in
+   `js/series.js`). Not for your own pen, not for storm sweeps.
+2. **Position splits the remainder** by the `SHARES` table.
+
+The pot is a closed system: bounties move money between players rather
+than minting it, so a round's deltas always sum to zero. Knocking two
+pens off from last place can out-earn a passive second.
+
 ## Voice pack
 
 `assets/voice/*.mp3` are the meme lines. They play only when a pen goes

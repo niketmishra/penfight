@@ -329,9 +329,11 @@ export function renderLobby(players, myId, hostId, opts = {}) {
 // ---------- game hud ----------
 
 export function renderChips(players, currentId, aliveCheck) {
+  // The name gets its own element so CSS can ellipsis it: six players with
+  // long names would otherwise stack one chip per row and crush the desk.
   $("chips").innerHTML = players.map(p => `
     <div class="chip${p.id === currentId ? " turn" : ""}${aliveCheck(p.id) ? "" : " dead"}">
-      <span class="dot" style="background:${p.team != null ? TEAM_COLORS[p.team] : chipColor(p.seat ?? players.indexOf(p))}"></span>${esc(p.name)}${p.balance != null ? ` <b class="chip-bal">₹${p.balance}</b>` : ""}
+      <span class="dot" style="background:${p.team != null ? TEAM_COLORS[p.team] : chipColor(p.seat ?? players.indexOf(p))}"></span><span class="who" title="${esc(p.name)}">${esc(p.name)}</span>${p.balance != null ? `<b class="chip-bal">₹${p.balance}</b>` : ""}
     </div>`).join("");
 }
 

@@ -7,7 +7,35 @@ import { penById } from "./pens.js";
 import { J_MAX } from "./flick.js";
 import { rayToEdge } from "./tables.js";
 
-const BOT_NAMES = ["Bunty", "Chintu", "Pinky", "Golu", "Mona"];
+// Bot names: affectionate misspellings of people the internet won't stop
+// making reels about, same joke as the pen roster in pens.js. Nobody real is
+// being quoted, only a bench full of lookalikes. Keep entries short, chips
+// in the HUD get cramped past about 13 characters.
+export const BOT_NAMES = [
+  // creators, streamers, the reel economy
+  "Somay R", "Tanmey B", "Kariminati", "Ashsish C", "Bhuwan Bum",
+  "Trigrred", "Elwish Y", "Fukhra Insan", "Thuggesh", "Harsh B",
+  "Sourav J", "Flying Beest", "BeerBysepz", "Khan Sirr", "Wivek B",
+  "Sandip M", "Orrry", "Urfee J", "Punit S", "Faizalwa",
+  // rap beef, but on a desk
+  "kr&na", "Seedhi Mot", "Emiwhy B", "MC Stun", "Roughtar",
+  "Diwine", "Badshaw", "Hani Singh", "Nayzee", "Ikkaa",
+  // film uncles
+  "Selman K", "Shahrook K", "Amitaab B", "Ajey Devgun", "Akshey K",
+  "Sunni Deol", "Mithoon C", "Nana P", "Rajpaal Y", "Johny Lever",
+  "Prabhaas", "Aneel K",
+  // bhojpuri superstars
+  "Ravie K", "Manuj T", "Nirhua", "Khesaari L", "Pawaan S",
+  // characters that outgrew their shows
+  "Jethaalal", "Babita Ji", "Bhide Mastr", "Popatlaal", "ACP Pradyu",
+  "Daya Bhai", "Kleen Bhaiya", "Guddu Bhaiya", "Munna Bhaiya", "Sachiv Ji",
+  "Pradhan Ji", "Gaitondey",
+  // certified meme legends
+  "Lord Pinku", "Ramen Dakot", "Dhinchek P", "Hindustani B", "Raakhi S",
+  "Binod", "Kokila Ben", "Baba Sehgaal",
+  // gully cricket royalty
+  "Thala MSD", "Wirat K", "Sir Jadeja", "Lord Shardul", "Sreesant"
+];
 
 // Difficulty shapes aim noise, self-preservation and power judgement.
 const DIFFS = {
@@ -20,9 +48,14 @@ export function botRoster(count, excludePenId, penPool, rand = Math.random, diff
   const d = DIFFS[difficulty] || DIFFS.normal;
   const pens = penPool.filter(p => p.id !== excludePenId);
   shuffle(pens, rand);
+  // Fresh faces every match, never the same name twice on one desk. Drawn
+  // from the caller's rand, so the daily's seeded bench stays identical
+  // for everyone playing that day.
+  const names = [...BOT_NAMES];
+  shuffle(names, rand);
   return Array.from({ length: count }, (_, i) => ({
     id: "bot-" + i,
-    name: BOT_NAMES[i % BOT_NAMES.length],
+    name: names[i % names.length],
     penId: (pens[i % pens.length] || penPool[0]).id,
     isBot: true,
     sigma: d.sigma[0] + rand() * d.sigma[1],      // aim noise, radians

@@ -606,7 +606,7 @@ input:focus { border-color: var(--gold); }
   font-family: var(--display);
   font-size: 15px;
   letter-spacing: 0.5px;
-  max-width: 92vw;
+  max-width: calc(100vw - 200px);   /* clears Leave (left) and mute (right) */
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 10px 20px 11px;
@@ -682,6 +682,18 @@ input:focus { border-color: var(--gold); }
   pointer-events: auto;
   padding: 8px 14px;
 }
+
+#btn-mute {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 10px);
+  right: 12px;
+  pointer-events: auto;
+  padding: 8px 10px;
+  line-height: 0;
+  color: var(--gold);
+}
+#btn-mute svg { width: 20px; height: 20px; }
+#btn-mute.muted { color: var(--dim); border-color: var(--line); }
 
 #emoji-bar {
   position: absolute;

@@ -1,7 +1,7 @@
 // Service worker. Versioned core cache, network-first for the shell so
 // updates land after one reload, cache fallback for offline practice.
 
-const CORE = "penfight-core-v8";
+const CORE = "penfight-core-v9";
 
 const SHELL = [
   ".",
@@ -30,6 +30,7 @@ const SHELL = [
   "js/net.js",
   "js/protocol.js",
   "js/room.js",
+  "js/voice.js",
   "vendor/planck.mjs",
   "vendor/supabase.mjs",
   "manifest.webmanifest",
@@ -39,9 +40,22 @@ const SHELL = [
   "assets/icon-maskable-512.png"
 ];
 
+// Voice pack. Cached best-effort and separately from the shell: a missing
+// clip should cost you a meme line, not the whole install.
+const VOICE = [
+  "ko-1.mp3", "ko-2.mp3", "ko-3.mp3", "ko-4.mp3", "ko-5.mp3",
+  "selfko-1.mp3", "selfko-2.mp3",
+  "win-1.mp3", "win-2.mp3", "win-3.mp3", "win-4.mp3", "win-5.mp3", "win-6.mp3",
+  "kangal-1.mp3", "out-1.mp3", "out-2.mp3"
+].map(f => "assets/voice/" + f);
+
 self.addEventListener("install", e => {
   e.waitUntil(
-    caches.open(CORE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())
+    caches.open(CORE)
+      .then(c => c.addAll(SHELL).then(() =>
+        Promise.all(VOICE.map(v => c.add(v).catch(() => {})))
+      ))
+      .then(() => self.skipWaiting())
   );
 });
 

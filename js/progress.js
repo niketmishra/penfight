@@ -13,7 +13,7 @@ const DEFAULTS = {
   },
   academy: {},     // levelId -> best stars
   dailyBest: {},   // dayNumber -> best score
-  settings: { lang: "hi", sound: true, reduceMotion: false },
+  settings: { lang: "hi", sound: true, voice: true, reduceMotion: false },
   seenTutorial: false
 };
 

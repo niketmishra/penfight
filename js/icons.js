@@ -92,6 +92,14 @@ export const ICONS = {
   check: svg(`
     <path d="M4.5 12.5 L10 18 19.5 6.5" stroke-width="2.4"/>
   `),
+  soundOn: svg(`
+    <path d="M4 9.5 h3.5 L12 5.5 v13 L7.5 14.5 H4 Z" fill="currentColor" stroke="none" opacity="0.9"/>
+    <path d="M15.5 9.2 a4 4 0 0 1 0 5.6 M18 6.8 a7.5 7.5 0 0 1 0 10.4"/>
+  `),
+  soundOff: svg(`
+    <path d="M4 9.5 h3.5 L12 5.5 v13 L7.5 14.5 H4 Z" fill="currentColor" stroke="none" opacity="0.9"/>
+    <path d="M16 9.5 l5 5 M21 9.5 l-5 5" stroke-width="2"/>
+  `),
   // Reaction bar: laugh, shock, clap join flame. Faces are stroke circles so
   // they inherit the button color like every other icon.
   laugh: svg(`

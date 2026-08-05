@@ -4,11 +4,19 @@
 let ac = null;
 let unlocked = false;
 let muted = false;
+const muteListeners = [];
 
 export function setMuted(m) {
   if (m) ambience(false);   // stop the loop before the gate closes
   muted = Boolean(m);
+  for (const cb of muteListeners) cb(muted);
 }
+
+export function isMuted() { return muted; }
+export function onMute(cb) { muteListeners.push(cb); }
+
+// Shared with voice.js so sampled clips ride the same unlocked context.
+export function audioCtx() { return unlocked ? ac : null; }
 
 export function init() {
   if (!ac) {

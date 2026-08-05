@@ -7,6 +7,7 @@ import { createMatch } from "./game.js";
 import { attachBots, botRoster, placeBots } from "./bots.js";
 import { PENS, penById } from "./pens.js";
 import * as sfx from "./sfx.js";
+import * as voice from "./voice.js";
 import * as ui from "./screens.js";
 import { onlineConfigured } from "./net.js";
 import { canonicalize, isValidCode } from "./code.js";
@@ -340,6 +341,8 @@ function wireMatch(m, players, opts = {}) {
     sfx.fall();
     sfx.vibrate(80);
     renderer.fx.inkSplat(ev.x, ev.y, 2.2);
+    // Your own pen going over gets its own line; a target pen isn't worth one.
+    if (ev.player) voice.line(ev.ownerId === myId ? "selfko" : "ko");
 
     // Kill cam: once per turn, only while the sim is actually running.
     if (m.state.phase === "sim" && m.state.turnIdx !== killCamTurn && !save.settings.reduceMotion) {
@@ -566,6 +569,8 @@ function localVictory({ winner, winnerTeam, myTeam }) {
   renderer.setHighlight(null);
   flick.disarm();
   const extras = victoryExtras(winner && winner.id);
+  const iWon = winnerTeam != null ? (myTeam != null && winnerTeam === myTeam) : Boolean(winner && winner.id === myId);
+  if (iWon) setTimeout(() => voice.line("win"), 500);
   if (winnerTeam != null) {
     const won = myTeam != null && winnerTeam === myTeam;
     if (won) { sfx.win(); renderer.confettiBurst(); }
@@ -663,6 +668,12 @@ function showRoundPayout(opts = {}) {
     };
   });
   sfx.clinkCascade(4);
+  // Money talks: took the pot, or went kangal.
+  const myDelta = deltas[myId] ?? 0;
+  setTimeout(() => {
+    if (meBroke) voice.line("kangal");
+    else if (myDelta > 0) voice.line("win");
+  }, 700);
   const anyBroke = series.solvent().length < seriesRoster.length;
   const onlineDone = seriesKind === "online" && anyBroke;
   if (done || onlineDone) {
@@ -915,9 +926,21 @@ async function startOnline(kind, code) {
   };
   ui.renderLobby(session.roster, myId, session.hostId, lobbyOpts());
 
+  let goneBefore = new Set();
   session.on("roster", players => {
     if (session.status === "lobby") ui.renderLobby(players, myId, session.hostId, lobbyOpts());
     else if (match) refreshChips(match, players);
+    // Somebody walked out mid-match: announce it once, not every roster tick.
+    const gone = new Set(players.filter(p => p.connected === false).map(p => p.id));
+    for (const id of gone) {
+      if (!goneBefore.has(id) && id !== myId) {
+        const p = players.find(q => q.id === id);
+        ui.toast(`${p ? p.name : "Someone"} left the table`);
+        voice.line("out");
+        break;
+      }
+    }
+    goneBefore = gone;
   });
   session.on("host", () => {
     if (session.status === "lobby") ui.renderLobby(session.roster, myId, session.hostId, lobbyOpts());
@@ -1045,6 +1068,7 @@ function cleanupMatch(opts = {}) {
   renderer.setStorm(0);
   renderer.camHome();
   sfx.ambience(false);
+  voice.stopAll();          // don't let a line carry on over the home screen
   setPotRibbon(null, null);
   $("btn-done").classList.add("hidden");
   ui.setTimer(null);
@@ -1104,8 +1128,26 @@ $("tutorial-close").addEventListener("click", () => {
   persist();
 });
 
+// Sound can be killed from inside a match, not just from the home screen.
+function syncMuteBtn() {
+  const on = save.settings.sound;
+  $("btn-mute").innerHTML = ICONS[on ? "soundOn" : "soundOff"];
+  $("btn-mute").classList.toggle("muted", !on);
+}
+function setSound(on) {
+  save.settings.sound = Boolean(on);
+  persist();
+  sfx.setMuted(!save.settings.sound);
+  syncMuteBtn();
+}
+$("btn-mute").addEventListener("click", () => {
+  setSound(!save.settings.sound);
+  ui.toast(save.settings.sound ? "Sound on" : "Sound off");
+});
+
 $("btn-settings").addEventListener("click", () => {
   $("set-sound").checked = save.settings.sound;
+  $("set-voice").checked = save.settings.voice !== false;
   $("set-lang").checked = save.settings.lang !== "en";
   $("set-motion").checked = save.settings.reduceMotion;
   $("set-stats").textContent =
@@ -1113,10 +1155,11 @@ $("btn-settings").addEventListener("click", () => {
   $("settings-overlay").classList.remove("hidden");
 });
 $("settings-close").addEventListener("click", () => $("settings-overlay").classList.add("hidden"));
-$("set-sound").addEventListener("change", e => {
-  save.settings.sound = e.target.checked;
+$("set-sound").addEventListener("change", e => setSound(e.target.checked));
+$("set-voice").addEventListener("change", e => {
+  save.settings.voice = e.target.checked;
   persist();
-  sfx.setMuted(!save.settings.sound);
+  voice.setEnabled(save.settings.voice);
 });
 $("set-lang").addEventListener("change", e => {
   save.settings.lang = e.target.checked ? "hi" : "en";
@@ -1385,12 +1428,15 @@ ui.onShow(name => { if (name) sfx.uiSwish(); });
 
 document.addEventListener("pointerdown", function unlock() {
   sfx.init();
+  voice.preload();          // needs the unlocked context to decode
   document.removeEventListener("pointerdown", unlock);
 });
 
 // Invite links: ?join=CODE
 const joinParam = new URLSearchParams(location.search).get("join");
 sfx.setMuted(!save.settings.sound);
+voice.setEnabled(save.settings.voice !== false);
+syncMuteBtn();
 setLanguage(save.settings.lang);
 document.body.classList.toggle("reduce-motion", Boolean(save.settings.reduceMotion));
 updateHomeMeta();
@@ -1430,5 +1476,5 @@ window.__pf = {
   get session() { return session; },
   get timeScale() { return timeScale; },
   get mode() { return mode; },
-  renderer, flick, store
+  renderer, flick, store, voice
 };

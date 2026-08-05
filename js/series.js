@@ -26,6 +26,8 @@ export function createSeries(playerIds) {
   const balances = new Map(playerIds.map(id => [id, START_BALANCE]));
   let roundIdx = 0;
   let currentStake = 0;
+  let currentAntes = {};      // id -> what they actually put in this round
+  let currentPot = 0;
   let anted = false;
   const history = [];
 
@@ -33,22 +35,35 @@ export function createSeries(playerIds) {
     return playerIds.filter(id => (balances.get(id) || 0) > 0);
   }
 
-  // Stake for the coming round: the schedule, capped by the poorest solvent
-  // player's balance (their all-in).
+  // The stake the table is playing for this round, straight off the schedule.
   function stake() {
-    const s = solvent();
-    if (!s.length) return 0;
-    const poorest = Math.min(...s.map(id => balances.get(id)));
-    return Math.min(stakeForRound(roundIdx), poorest);
+    return stakeForRound(roundIdx);
   }
 
-  // Collect the ante from every solvent player. Call once per round.
+  // Collect the ante. A player who cannot cover the stake goes all in for
+  // whatever is left; everyone else still pays full. Capping the whole
+  // table at the poorest player's balance would mean nobody ever loses
+  // real money and the series just runs out the round limit.
   function anteAll() {
     currentStake = stake();
     const participants = solvent();
-    for (const id of participants) balances.set(id, balances.get(id) - currentStake);
+    currentAntes = {};
+    currentPot = 0;
+    for (const id of participants) {
+      const bal = balances.get(id) || 0;
+      const put = Math.min(currentStake, bal);
+      currentAntes[id] = put;
+      balances.set(id, bal - put);
+      currentPot += put;
+    }
     anted = true;
-    return { stake: currentStake, pot: currentStake * participants.length, participants };
+    return {
+      stake: currentStake,
+      pot: currentPot,
+      participants,
+      antes: { ...currentAntes },
+      allIn: participants.filter(id => currentAntes[id] < currentStake)
+    };
   }
 
   // positions: participant ids ranked best first.
@@ -62,7 +77,7 @@ export function createSeries(playerIds) {
     if (!anted) return {};
     const n = positions.length;
     const shares = SHARES[n] || SHARES[2];
-    const pot = currentStake * n;
+    const pot = currentPot;                 // what was actually collected
 
     // Bounty pool, clamped to the pot for the pathological case of a tiny
     // all-in stake with a lot of carnage.
@@ -96,10 +111,15 @@ export function createSeries(playerIds) {
     const deltas = {};
     positions.forEach((id, i) => {
       const win = byPos[i] + (bounty[id] || 0);
-      deltas[id] = win - currentStake;
+      deltas[id] = win - (currentAntes[id] || 0);
       balances.set(id, (balances.get(id) || 0) + win);
     });
-    history.push({ round: roundIdx, stake: currentStake, deltas, bounty });
+    // Anyone who anted but never made the ranking (walked out mid-round)
+    // simply loses their stake; it stays in the pot the others split.
+    for (const id of Object.keys(currentAntes)) {
+      if (!(id in deltas)) deltas[id] = -currentAntes[id];
+    }
+    history.push({ round: roundIdx, stake: currentStake, pot, deltas, bounty });
     roundIdx += 1;
     anted = false;
     return deltas;

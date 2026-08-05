@@ -83,6 +83,16 @@ function seriesEligible(modeId) {
   return !m.teams && !m.solo;
 }
 
+// Who shoots first rotates every round. Going first is a real edge, so the
+// same player keeping it all series would just be a tax on everyone else.
+let localRoundNo = 0;
+function rotatedOrder(players, k) {
+  const ids = players.map(p => p.id);
+  if (!ids.length) return ids;
+  const off = ((k % ids.length) + ids.length) % ids.length;
+  return [...ids.slice(off), ...ids.slice(0, off)];
+}
+
 flick.previewCb = p => {
   if (p && match && p.uid != null && p.J != null) {
     p.path = match.sim.predictPath(p.uid, { dx: p.dx, dy: p.dy, J: p.J, off: p.off });
@@ -628,7 +638,7 @@ function startPracticeRound() {
   if (anteInfo) {
     sfx.clink();
     setTimeout(() => ui.comment(`Round ${series.roundNumber} · Daav ₹${anteInfo.stake}`), 1300);
-    setPotRibbon(series.roundNumber, anteInfo.stake * anteInfo.participants.length);
+    setPotRibbon(series.roundNumber, anteInfo.pot);
   }
   const myTeam = modeCfg.teams ? teamOfSeat(0) : null;
   match.on("over", ({ winner, winnerTeam }) => {
@@ -642,7 +652,7 @@ function startPracticeRound() {
   ui.show(null);
   ui.setTimer(null);
   $("emoji-bar").classList.add("hidden");
-  match.start(undefined, undefined, { placement: true });
+  match.start(undefined, rotatedOrder(players, series ? series.roundIdx : localRoundNo++), { placement: true });
 }
 
 // Settle the round's money and show the standings table.
@@ -754,12 +764,12 @@ function startPassRound() {
   if (anteInfo) {
     sfx.clink();
     setTimeout(() => ui.comment(`Round ${series.roundNumber} · Daav ₹${anteInfo.stake}`), 1300);
-    setPotRibbon(series.roundNumber, anteInfo.stake * anteInfo.participants.length);
+    setPotRibbon(series.roundNumber, anteInfo.pot);
   }
   ui.show(null);
   ui.setTimer(null);
   $("emoji-bar").classList.add("hidden");
-  match.start(undefined, undefined, { placement: true });
+  match.start(undefined, rotatedOrder(players, series ? series.roundIdx : localRoundNo++), { placement: true });
 }
 
 function shuffleArr(arr) {
@@ -1026,7 +1036,7 @@ function beginOnlineMatch({ order, layout, props = [], zones = [] }) {
     players.forEach(p => { p.balance = series.balance(p.id); });
     sfx.clink();
     setTimeout(() => ui.comment(`Round ${series.roundNumber} · Daav ₹${ante.stake}`), 1300);
-    setPotRibbon(series.roundNumber, ante.stake * ante.participants.length);
+    setPotRibbon(series.roundNumber, ante.pot);
   }
   match = createMatch({
     players, autoAdvance: false,

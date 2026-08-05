@@ -83,6 +83,8 @@ async function connect(code, me, amCreator) {
   let settleWatch = null;
   let lastTurn = { turnIdx: -1, playerId: null };
   let rematchVotes = new Set();
+  let seatOrder = null;        // stable seating; the first shot rotates through it
+  let roundNo = 0;
   const placeDone = new Set();
   let roundOpened = false;
   let startTimer = null;
@@ -382,8 +384,18 @@ async function connect(code, me, amCreator) {
   function startGame() {
     if (!s.isHost || s.players.length < 2) return;
     if (s.mode.teams && s.players.length < 4) return;   // 2v2 minimum
-    const order = s.players.map(p => p.id);
-    shuffle(order);
+    // Seating is shuffled once, then the first shot rotates one seat per
+    // round. Reshuffling every round would let the same player open several
+    // rounds running; the host opening every round would be worse still.
+    const ids = s.players.map(p => p.id);
+    if (!seatOrder || seatOrder.length !== ids.length || !ids.every(i => seatOrder.includes(i))) {
+      seatOrder = [...ids];
+      shuffle(seatOrder);
+      roundNo = 0;
+    }
+    const off = roundNo % seatOrder.length;
+    const order = [...seatOrder.slice(off), ...seatOrder.slice(0, off)];
+    roundNo += 1;
     const table = tableById(s.tableId);
     const layout = genLayout(
       s.players.map(p => ({ id: p.id, penId: p.penId })),

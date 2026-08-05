@@ -63,8 +63,10 @@ GitHub Pages from `main`, root. All paths are relative. After changing any shipp
 ## The Daav (betting series)
 
 Everyone starts at ₹100. Each round every player antes the stake (₹10,
-rising to ₹20 then ₹30 every three rounds, capped by the poorest player's
-all-in). Payout, from the same pot:
+rising to ₹20 then ₹30 every three rounds). A player who cannot cover the
+stake goes all in for whatever is left; everyone else still pays full, so
+one short player never drags the table's stake down. Payout, from the
+same pot:
 
 1. **KO bounty first** — ₹5 per pen you knocked off (`KO_BOUNTY` in
    `js/series.js`). Not for your own pen, not for storm sweeps.
@@ -73,6 +75,10 @@ all-in). Payout, from the same pot:
 The pot is a closed system: bounties move money between players rather
 than minting it, so a round's deltas always sum to zero. Knocking two
 pens off from last place can out-earn a passive second.
+
+Who shoots first rotates one seat every round (seating is shuffled once
+at the start online, fixed by roster order in practice), so opening the
+round is shared evenly rather than being a standing advantage.
 
 ## Voice pack
 

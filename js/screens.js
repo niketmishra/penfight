@@ -386,9 +386,10 @@ export function floatEmoji(key) {
 
 // Daav standings between rounds and at series end.
 // rows: [{name, balance, delta, isMe, out}] ranked best first.
-export function showPayout({ title, sub, rows, continueLabel, showContinue = true }) {
+export function showPayout({ title, sub, rows, continueLabel, showContinue = true, final = false }) {
   $("payout-title").textContent = title;
   $("payout-sub").textContent = sub || "";
+  $("payout-rows").classList.toggle("final", Boolean(final));
   $("payout-rows").innerHTML = rows.map((r, i) => `
     <div class="payout-row${r.isMe ? " me" : ""}${r.out ? " out" : ""}">
       <span class="pos">${i + 1}</span>

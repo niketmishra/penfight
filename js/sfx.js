@@ -18,13 +18,23 @@ export function onMute(cb) { muteListeners.push(cb); }
 // Shared with voice.js so sampled clips ride the same unlocked context.
 export function audioCtx() { return unlocked ? ac : null; }
 
+// Safe to call as often as you like. Safari parks the context on its own -
+// backgrounding the tab, a phone call, the ringer switch - and leaves it in
+// "suspended" or the non-standard "interrupted" state, where sounds are
+// scheduled but silent. It only restarts from a user gesture, so every
+// gesture calls this rather than just the first one.
 export function init() {
   if (!ac) {
     try { ac = new (window.AudioContext || window.webkitAudioContext)(); }
     catch { return; }
   }
-  if (ac.state === "suspended") ac.resume();
+  if (ac.state !== "running") { try { ac.resume(); } catch { /* ignore */ } }
   unlocked = true;
+}
+
+// True only when sound can actually be heard right now.
+export function running() {
+  return Boolean(unlocked && ac && ac.state === "running");
 }
 
 function now() { return ac.currentTime; }

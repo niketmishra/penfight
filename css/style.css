@@ -885,6 +885,18 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .payout-row .kos .icn { width: 1em; height: 1em; color: var(--hot); }
 .payout-row .kos .bounty { color: var(--green); font-size: 11px; margin-left: 2px; }
 
+/* Final table: the podium reads at a glance */
+#payout-rows.final .payout-row:nth-child(1) {
+  border-color: var(--gold);
+  background: linear-gradient(90deg, rgba(242, 177, 53, 0.18), rgba(242, 177, 53, 0.05));
+}
+#payout-rows.final .payout-row:nth-child(1) .pos { color: var(--gold); }
+#payout-rows.final .payout-row:nth-child(2) { border-color: rgba(200, 210, 230, 0.45); }
+#payout-rows.final .payout-row:nth-child(2) .pos { color: #c8d2e6; }
+#payout-rows.final .payout-row:nth-child(3) { border-color: rgba(190, 130, 80, 0.45); }
+#payout-rows.final .payout-row:nth-child(3) .pos { color: #be8250; }
+#payout-rows.final .payout-row .delta { display: none; }
+
 
 /* ---------- small phones: compact HUD ---------- */
 @media (max-width: 420px) {

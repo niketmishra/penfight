@@ -98,6 +98,19 @@ async function connect(code, me, amCreator) {
     hostNextTurn();
   }
 
+  // Who still has a pen to put down. A player who dropped out cannot hold
+  // the round up.
+  function placeWaiting() {
+    return s.players.filter(p => p.connected !== false && !placeDone.has(p.id));
+  }
+
+  function emitPlaceStatus() {
+    emit("placeStatus", {
+      done: [...placeDone],
+      waiting: placeWaiting().map(p => ({ id: p.id, name: p.name }))
+    });
+  }
+
   function send(event, payload) {
     channel.send({ type: "broadcast", event, payload: { from: s.playerId, ...payload } });
   }
@@ -271,10 +284,12 @@ async function connect(code, me, amCreator) {
         if (typeof payload.x === "number") {
           emit("place", { from, x: payload.x, y: payload.y, angle: payload.angle });
         }
-        if (payload.done === true && s.isHost) {
+        if (payload.done === true) {
+          // Tracked on every client, not just the host, so each player can
+          // be told who they are still waiting on.
           placeDone.add(from);
-          const waiting = s.players.filter(p => p.connected && !placeDone.has(p.id));
-          if (!waiting.length) openRound();
+          emitPlaceStatus();
+          if (s.isHost && !placeWaiting().length) openRound();
         }
         break;
       case EV.EMOJI:
@@ -442,11 +457,9 @@ async function connect(code, me, amCreator) {
   s.sendPlace = (x, y, angle) => send(EV.PLACE, { x, y, angle });
   s.sendPlaceDone = (x, y, angle) => {
     send(EV.PLACE, { x, y, angle, done: true });
-    if (s.isHost) {
-      placeDone.add(s.playerId);
-      const waiting = s.players.filter(p => p.connected && !placeDone.has(p.id));
-      if (!waiting.length) openRound();
-    }
+    placeDone.add(s.playerId);
+    emitPlaceStatus();
+    if (s.isHost && !placeWaiting().length) openRound();
   };
   s.voteRematch = () => {
     rematchVotes.add(s.playerId);

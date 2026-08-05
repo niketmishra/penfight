@@ -63,6 +63,7 @@ let mode = null;             // "practice" | "online" | "pass"
 let pickerMode = null;       // "practice" | "create" | "join"
 let pendingJoinCode = null;
 let turnDeadline = null;
+let turnWindow = 20;         // seconds the current countdown bar represents
 let botsCtl = null;
 
 // What the player chose on the mode screen.
@@ -72,6 +73,8 @@ let lastPassNames = null;
 
 // XP earned in the last finished match, shown on the victory screen.
 let lastVictoryXp = null;
+// The Daav has finished: the payout screen is showing the final table.
+let seriesOver = false;
 
 // The Daav: betting series state for FFA versus modes.
 let series = null;
@@ -140,7 +143,7 @@ function loop(tNow) {
   }
   if (turnDeadline != null) {
     const left = (turnDeadline - Date.now()) / 1000;
-    ui.setTimer(left / 20);
+    ui.setTimer(left / turnWindow);
     if (left <= 0) turnDeadline = null;
   }
   requestAnimationFrame(loop);
@@ -156,7 +159,10 @@ let lastPlaceSend = 0;
 
 function startPlacing(playerId, ms, { online = false } = {}) {
   if (!match) return;
+  placement.waitingForOthers = false;
+  placement.windowMs = ms;
   placement.active = true;
+  if (online) lastPlaceStatus = null;   // last round's list must not leak in
   placement.playerId = playerId;
   placement.online = online;
   placement.deadline = Date.now() + ms;
@@ -188,8 +194,33 @@ function finishPlacing() {
   placement.active = false;
   placement.playerId = null;
   renderer.setPlacement(null);
-  if (match && !placement.online) match.endPlacement();
-  if (match && placement.online) match.endPlacement();   // stop accepting; host clock starts turns
+  if (match) match.endPlacement();   // online: stop accepting, host clock starts turns
+  // Online the round does not open until everyone is down. Say so, otherwise
+  // the wait after tapping Done reads as the game having frozen.
+  if (placement.online && session) {
+    placement.waitingForOthers = true;
+    showPlaceWaiting(lastPlaceStatus);
+    // Keep the countdown bar running so the wait has a visible end.
+    turnDeadline = placement.deadline;
+    turnWindow = Math.max(1, (placement.windowMs || 15000) / 1000);
+  }
+}
+
+// null status = we have not heard yet; fall back to a generic line.
+let lastPlaceStatus = null;
+function showPlaceWaiting(status) {
+  if (!placement.waitingForOthers) return;
+  const others = ((status && status.waiting) || []).filter(p => p.id !== myId);
+  if (status && !others.length) {
+    ui.setTurnBanner("Everyone's ready...", true);
+    return;
+  }
+  const names = others.map(p => p.name);
+  const who = !names.length ? "the others"
+    : names.length === 1 ? names[0]
+    : names.length === 2 ? `${names[0]} and ${names[1]}`
+    : `${names.length} players`;
+  ui.setTurnBanner(`Waiting for ${who} to place`, false);
 }
 
 canvas.addEventListener("pointerdown", e => {
@@ -688,15 +719,24 @@ function showRoundPayout(opts = {}) {
   const anyBroke = series.solvent().length < seriesRoster.length;
   const onlineDone = seriesKind === "online" && anyBroke;
   if (done || onlineDone) {
+    // Somebody went kangal (or the rounds ran out): final table, then a way
+    // back in. Restarting the series behind the player's back reads as the
+    // game losing their money.
+    seriesOver = true;
     const w = seriesRoster.find(q => q.id === series.winnerId());
     const iWonSeries = series.winnerId() === myId;
     if (iWonSeries) { sfx.win(); renderer.confettiBurst(); addXp(XP.win); }
+    const hostWaits = Boolean(opts.hostWaits);
     ui.showPayout({
       title: iWonSeries ? "Poora desk aapka!" : meBroke ? "Kangal! Series over" : `${w ? w.name : "?"} took the money`,
-      sub: `Series over · ${series.roundIdx} round${series.roundIdx === 1 ? "" : "s"} played`,
-      rows, showContinue: false
+      sub: `Game over · ${series.roundIdx} round${series.roundIdx === 1 ? "" : "s"} played`,
+      rows, final: true,
+      continueLabel: hostWaits ? "Waiting for host" : "Play again",
+      showContinue: true
     });
+    $("payout-continue").disabled = Boolean(hostWaits);
   } else {
+    seriesOver = false;
     ui.showPayout({
       title: `Round ${series.roundIdx} results`,
       sub: `Next: Round ${series.roundNumber} · Daav ₹${series.stake()}`,
@@ -961,6 +1001,7 @@ async function startOnline(kind, code) {
   session.on("turn", t => {
     if (!match) return;
     turnDeadline = t.deadlineTs;
+    turnWindow = 20;
     match.setTurn(t.playerId, { turnIdx: t.turnIdx });
   });
   session.on("flick", f => {
@@ -975,6 +1016,15 @@ async function startOnline(kind, code) {
     match.forceSettle(p.finalStates, p.fallen, p.skipped || []);
     renderer.softenNextFrames();
     refreshChips(match, match.players);
+  });
+  session.on("placeStatus", st => {
+    lastPlaceStatus = st;
+    showPlaceWaiting(st);
+    // Still placing yourself? Show how many are already down.
+    if (placement.active && placement.playerId === myId) {
+      const left = (st.waiting || []).filter(p => p.id !== myId).length;
+      if (left === 0) ui.setTurnBanner("Place your pen! Everyone else is ready", true);
+    }
   });
   session.on("place", p => {
     if (match && p.from !== myId) match.place(p.from, p.x, p.y, p.angle);
@@ -1371,6 +1421,18 @@ $("lobby-code").addEventListener("click", async () => {
 $("btn-quit").addEventListener("click", goHome);
 
 $("payout-continue").addEventListener("click", () => {
+  // After a game over this button starts a brand new Daav: everybody back
+  // to the opening balance rather than carrying a dead series forward.
+  if (seriesOver) {
+    // Online everyone rebuilds the series from the host's START, so only the
+    // local modes reset it here.
+    if (seriesKind !== "online" && seriesRoster) {
+      series = createSeries(seriesRoster.map(p => p.id));
+      seriesRoster.forEach(p => { p.balance = series.balance(p.id); });
+      localRoundNo = 0;
+    }
+    seriesOver = false;
+  }
   if (seriesKind === "practice") startPracticeRound();
   else if (seriesKind === "pass") startPassRound();
   else if (seriesKind === "online" && session && session.isHost) {
@@ -1437,11 +1499,15 @@ ui.onShow(name => { if (name) sfx.uiSwish(); });
 
 // ---------- boot ----------
 
-document.addEventListener("pointerdown", function unlock() {
-  sfx.init();
-  voice.preload();          // needs the unlocked context to decode
-  document.removeEventListener("pointerdown", unlock);
-});
+// Every gesture re-arms audio, not just the first: Safari suspends the
+// context whenever the tab is backgrounded or the phone is interrupted, and
+// only a user gesture can restart it. Both calls are cheap no-ops once the
+// context is already running and the pack is loaded.
+for (const ev of ["pointerdown", "touchend", "keydown"]) {
+  document.addEventListener(ev, () => { sfx.init(); voice.preload(); }, { passive: true });
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) sfx.init(); });
+window.addEventListener("focus", () => sfx.init());
 
 // Invite links: ?join=CODE
 const joinParam = new URLSearchParams(location.search).get("join");
@@ -1487,5 +1553,6 @@ window.__pf = {
   get session() { return session; },
   get timeScale() { return timeScale; },
   get mode() { return mode; },
+  get series() { return series; },
   renderer, flick, store, voice
 };

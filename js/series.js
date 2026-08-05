@@ -6,6 +6,7 @@
 
 export const START_BALANCE = 100;
 export const MAX_ROUNDS = 9;
+export const KO_BOUNTY = 5;    // rupees per pen you knock off, paid from the pot
 
 // Payout shares in units of the stake, best position first.
 // Sums always equal the player count, so the pot balances exactly.
@@ -50,17 +51,55 @@ export function createSeries(playerIds) {
     return { stake: currentStake, pot: currentStake * participants.length, participants };
   }
 
-  // positions: participant ids ranked best first. Returns per-player deltas.
-  function settle(positions) {
+  // positions: participant ids ranked best first.
+  // kills: id -> pens that player knocked off this round.
+  //
+  // Bounties are paid first, out of the same pot, and position splits what
+  // is left. The pot is a closed system: what the table anted is exactly
+  // what the table takes home, so knocking pens off moves money between
+  // players rather than minting it.
+  function settle(positions, kills = {}) {
     if (!anted) return {};
-    const shares = SHARES[positions.length] || SHARES[2];
+    const n = positions.length;
+    const shares = SHARES[n] || SHARES[2];
+    const pot = currentStake * n;
+
+    // Bounty pool, clamped to the pot for the pathological case of a tiny
+    // all-in stake with a lot of carnage.
+    const bounty = {};
+    let bountyTotal = 0;
+    for (const id of positions) {
+      const k = Math.max(0, Math.floor(kills[id] || 0));
+      if (k > 0) { bounty[id] = k * KO_BOUNTY; bountyTotal += bounty[id]; }
+    }
+    if (bountyTotal > pot) {
+      const k = pot / bountyTotal;
+      bountyTotal = 0;
+      for (const id of Object.keys(bounty)) {
+        bounty[id] = Math.floor(bounty[id] * k);
+        bountyTotal += bounty[id];
+      }
+    }
+
+    // Split the remainder by position. Integer rupees only; the rounding
+    // crumbs go to the winner so the pot still balances to the paisa.
+    const rest = pot - bountyTotal;
+    const unit = Math.floor(rest / n);
+    let paid = 0;
+    const byPos = positions.map((id, i) => {
+      const win = (shares[i] || 0) * unit;
+      paid += win;
+      return win;
+    });
+    if (byPos.length) byPos[0] += rest - paid;
+
     const deltas = {};
     positions.forEach((id, i) => {
-      const win = (shares[i] || 0) * currentStake;
+      const win = byPos[i] + (bounty[id] || 0);
       deltas[id] = win - currentStake;
       balances.set(id, (balances.get(id) || 0) + win);
     });
-    history.push({ round: roundIdx, stake: currentStake, deltas });
+    history.push({ round: roundIdx, stake: currentStake, deltas, bounty });
     roundIdx += 1;
     anted = false;
     return deltas;

@@ -22,7 +22,7 @@ import {
   addXp, levelFor, playerLevel, STICKERS, XP
 } from "./progress.js";
 import { setLanguage } from "./commentary.js";
-import { createSeries } from "./series.js";
+import { createSeries, KO_BOUNTY } from "./series.js";
 
 const $ = id => document.getElementById(id);
 
@@ -265,7 +265,7 @@ function setPotRibbon(round, pot) {
   const el = $("pot-ribbon");
   if (pot == null) el.classList.add("hidden");
   else {
-    el.textContent = `Round ${round} \u00b7 Pot \u20b9${pot}`;
+    el.textContent = `Round ${round} \u00b7 Pot \u20b9${pot} \u00b7 KO \u20b9${KO_BOUNTY}`;
     el.classList.remove("hidden");
   }
   updateHudInsets();
@@ -654,17 +654,18 @@ function showRoundPayout(opts = {}) {
     positions.splice(positions.indexOf(opts.winnerId), 1);
     positions.unshift(opts.winnerId);
   }
-  const deltas = series.settle(positions);
+  const kills = match && match.state ? match.state.kills : {};
+  const deltas = series.settle(positions, kills);
   const meBroke = series.balance(myId) <= 0;
   const localKind = seriesKind !== "online";
   const done = series.over() || (seriesKind === "practice" && meBroke);
-  const kills = match && match.state ? match.state.kills : {};
   const rows = series.standings().map(s => {
     const p = seriesRoster.find(q => q.id === s.id);
+    const kos = kills[s.id] || 0;
     return {
       name: p ? p.name : "?", balance: s.balance,
       delta: deltas[s.id] ?? 0, isMe: s.id === myId, out: s.balance <= 0,
-      kos: kills[s.id] || 0
+      kos, bounty: kos * KO_BOUNTY
     };
   });
   sfx.clinkCascade(4);

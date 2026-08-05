@@ -391,7 +391,8 @@ export function showPayout({ title, sub, rows, continueLabel, showContinue = tru
     <div class="payout-row${r.isMe ? " me" : ""}${r.out ? " out" : ""}">
       <span class="pos">${i + 1}</span>
       <span class="who">${esc(r.name)}${r.isMe ? " (you)" : ""}</span>
-      ${r.kos ? `<span class="kos"><span class="icn">${ICONS.skull}</span>${r.kos}</span>` : ""}
+      ${r.kos ? `<span class="kos" title="${r.kos} KO">
+        <span class="icn">${ICONS.skull}</span>${r.kos}${r.bounty ? `<b class="bounty">+₹${r.bounty}</b>` : ""}</span>` : ""}
       ${r.out ? '<span class="kangal">KANGAL</span>' : ""}
       <span class="bal">₹${r.balance}</span>
       <span class="delta ${r.delta > 0 ? "up" : r.delta < 0 ? "down" : ""}">${r.delta > 0 ? "+" : ""}${r.delta || 0}</span>

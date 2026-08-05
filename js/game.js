@@ -266,6 +266,17 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
     }
   }
 
+  // Credit the striker for knocking someone off. Not for their own pen, and
+  // not for the storm sweeping one away: you only get paid for your own work.
+  // Every client derives this from the same turn and the same falls, so the
+  // KO counts (and the bounties they earn) agree without extra messages.
+  function creditKill(ev) {
+    const striker = state.currentId;
+    if (!striker || ev.cause === "storm") return;
+    if (!byId.has(ev.ownerId) || ev.ownerId === striker) return;
+    state.kills[striker] = (state.kills[striker] || 0) + 1;
+  }
+
   function handleFall(ev) {
     if (targetUids.has(ev.uid)) {
       targetUids.delete(ev.uid);
@@ -278,6 +289,7 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
       lastFall = ev.ownerId;
       state.fallenThisTurn.push(ev.ownerId);
       if (!state.elimOrder.includes(ev.ownerId)) state.elimOrder.push(ev.ownerId);
+      creditKill(ev);
     }
     emit("fall", { ...ev, player: byId.get(ev.ownerId) });
   }
@@ -317,6 +329,9 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
           alive.set(id, false);
           lastFall = id;
           if (!state.elimOrder.includes(id)) state.elimOrder.push(id);
+          // A death our own sim missed still earns the striker their bounty.
+          // The alive check above means a fall we already saw isn't paid twice.
+          creditKill({ ownerId: id, cause: "edge" });
         }
         targetUids.delete(id);
         if (b) {

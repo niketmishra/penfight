@@ -41,6 +41,7 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
   const listeners = {};
   const state = {
     phase: "idle",            // idle | aiming | sim | settled | over
+    placementOpen: false,     // pens may still be repositioned by their owner
     turnIdx: -1,
     currentId: null,
     order: [],
@@ -78,6 +79,7 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
     emit("start", { layout: lay, order: state.order });
     if (placement) {
       state.phase = "placing";
+      state.placementOpen = true;
       emit("placing", {});
     } else if (autoAdvance) {
       advanceTurn();
@@ -93,8 +95,13 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
 
   // Set a pen inside its owner's zone. Position is clamped, so a slightly
   // out-of-zone drag (or a remote player's message) lands legally.
+  // Accepted from anyone until the round actually starts. Gating this on the
+  // "placing" phase meant that the moment YOU finished positioning your own
+  // pen, your client stopped applying everybody else's placements - and if
+  // that client then struck first, the pre-flick snapshot it broadcast still
+  // had their pens at spawn, yanking them back there on every screen.
   function place(playerId, x, y, angle) {
-    if (state.phase !== "placing") return false;
+    if (!state.placementOpen) return false;
     const zone = zoneFor(playerId);
     const body = sim.getBody(playerId);
     if (!zone || !body) return false;
@@ -139,6 +146,7 @@ export function createMatch({ players, autoAdvance = true, mode = "classic", tab
 
   function setTurn(playerId, meta = {}) {
     if (state.phase === "over") return;
+    state.placementOpen = false;   // the round is live; pens are where they are
     if (state.phase === "placing") { state.phase = "idle"; emit("placementOver", {}); }
     state.turnIdx = meta.turnIdx != null ? meta.turnIdx : state.turnIdx + 1;
     state.currentId = playerId;

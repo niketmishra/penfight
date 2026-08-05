@@ -423,6 +423,12 @@ async function connect(code, me, amCreator) {
     lastFallenId = null;
     pendingSkips.clear();
     lastTurn = { turnIdx: -1, playerId: null };
+    // The host never runs its own EV.START handler, so this round-reset has
+    // to happen here too. Without it placeDone stayed full from round one:
+    // roundOpened was stuck true, so the all-done early start was dead and
+    // every later round sat out the whole placement timeout instead.
+    placeDone.clear();
+    roundOpened = false;
     setRoomStatus(code, "playing").catch(() => {});
     const payload = {
       order, layout, mode: s.modeId, tableId: s.tableId,

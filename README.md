@@ -57,4 +57,34 @@ GitHub Pages from `main`, root. All paths are relative. After changing any shipp
 - `js/progress.js` XP, unlocks, stats, stickers, save blob
 - `js/render.js` camera, kill cam, desk themes, particles, teeter drama
 - `js/commentary.js` the Hinglish commentator
+- `js/voice.js` the desi voice pack (see below)
 - `supabase/schema.sql` rooms table + RLS
+
+## Voice pack
+
+`assets/voice/*.mp3` are the meme lines. They play only when a pen goes
+over, when money moves, or when someone walks out mid-match: never on
+collisions, because pens knock together many times a turn. A line always
+finishes; a bigger moment queues behind it rather than talking over it.
+
+Which clip plays when is the `CLIPS` table at the top of `js/voice.js`.
+Recasting a moment is a one-line change:
+
+```js
+ko:     ["ko-1.mp3", "ko-2.mp3", ...]   // someone else's pen falls
+selfko: ["selfko-1.mp3", ...]           // your own pen falls
+win:    ["win-1.mp3", ...]              // you took the pot
+kangal: ["kangal-1.mp3"]                // you went broke
+out:    ["out-1.mp3", ...]              // a player left the match
+```
+
+To add a clip, drop the source in `assets/audio/` (gitignored, local
+only) and convert it keeping the whole phrase:
+
+```bash
+ffmpeg -i "input.mp3" -af "afade=t=in:st=0:d=0.008,loudnorm=I=-15:TP=-1.5:LRA=11" -ac 1 -ar 24000 -b:a 56k assets/voice/ko-6.mp3
+```
+
+Then list the filename in `CLIPS` and in `VOICE` in `sw.js`, and bump
+`CORE`. Players can mute everything with the speaker button in the HUD,
+or drop just the voices with the Settings toggle.

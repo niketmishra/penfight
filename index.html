@@ -34,21 +34,23 @@
 </div>
 
 <div class="screen" id="s-home">
-  <div class="stack">
+  <div class="home-top">
     <div class="logo">
       <div class="logo-mark" id="logo-mark"></div>
       <h1>PEN<br>FIGHT</h1>
     </div>
-    <p class="tagline">The school bench classic. Flick your pen, clear the desk, last pen standing wins.</p>
-    <div class="btn-col">
-      <button id="btn-practice" class="big-btn accent" type="button"><span id="ic-practice"></span> Practice vs bots</button>
-      <button id="btn-pass" class="big-btn" type="button"><span id="ic-pass"></span> Pass and play</button>
-      <div class="row">
-        <button id="btn-academy" class="big-btn" type="button"><span id="ic-academy"></span> Academy</button>
-        <button id="btn-daily" class="big-btn" type="button"><span id="ic-daily"></span> Daily</button>
-      </div>
+    <p class="tagline">Flick your pen. Clear the desk.</p>
+  </div>
+  <div class="home-sheet">
+    <button id="btn-practice" class="big-btn accent" type="button"><span id="ic-practice"></span> Play vs bots</button>
+    <div class="row">
       <button id="btn-create" class="big-btn blue" type="button"><span id="ic-create"></span> Create room</button>
-      <button id="btn-join" class="big-btn blue" type="button"><span id="ic-join"></span> Join room</button>
+      <button id="btn-join" class="big-btn blue" type="button"><span id="ic-join"></span> Join</button>
+    </div>
+    <div class="tile-row">
+      <button id="btn-pass" class="tile" type="button"><span id="ic-pass"></span><b>Pass &amp; play</b></button>
+      <button id="btn-academy" class="tile" type="button"><span id="ic-academy"></span><b>Academy</b></button>
+      <button id="btn-daily" class="tile" type="button"><span id="ic-daily"></span><b>Daily</b></button>
     </div>
     <p id="online-hint" class="hint hidden">Online play is not set up yet. Open README.md, add your Supabase keys to js/config.js.</p>
     <div id="home-meta"></div>

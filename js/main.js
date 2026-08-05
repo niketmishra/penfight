@@ -136,7 +136,7 @@ function loop(tNow) {
   const dt = Math.min(0.1, (tNow - lastT) / 1000);
   lastT = tNow;
   if (match) {
-    match.update(dt * timeScale);
+    if (mode !== "hero") match.update(dt * timeScale);   // the backdrop is a still life
     renderer.draw(match.sim, dt, tNow, timeScale);
   } else {
     renderer.draw(EMPTY_SIM, dt, tNow, 1);
@@ -1136,32 +1136,55 @@ function cleanupMatch(opts = {}) {
   updateHudInsets();
 }
 
-// ---------- attract mode: bots play behind the home screen ----------
+// ---------- home backdrop ----------
+//
+// A still life, not a match. A live bot game used to run back here, but
+// behind a menu it reads as a video looping at random: pens twitching,
+// the camera cutting, most of it hidden. This lays four pens out on the
+// desk and leaves them alone, and frameHero sits the desk in the gap
+// between the title and the button sheet so none of it is ever covered.
 
 let demoTimer = null;
 
-function startDemo() {
-  if (session || (match && mode !== "demo")) return;
+function startHero() {
+  if (session || match) return;   // already showing, or a real game is up
   clearTimeout(demoTimer);
-  mode = "demo";
-  const bots = botRoster(3 + Math.floor(Math.random() * 3), null, PENS);
-  bots.forEach((p, i) => { p.seat = i; p.sticker = randomSticker(); });
+  mode = "hero";
+  const pens = [...PENS];
+  shuffleArr(pens);
+  const cast = pens.slice(0, 4).map((p, i) => ({
+    id: "hero-" + i, name: "", penId: p.id, isBot: true, seat: i, sticker: randomSticker()
+  }));
   match = createMatch({
-    players: bots, autoAdvance: true,
-    mode: { ...modeById("classic"), storm: false }
+    players: cast, autoAdvance: false,
+    mode: { ...modeById("classic"), storm: false }, tableId: "classroom"
   });
-  renderer.setTable(match.table, { holes: match.holes, walls: match.sim.walls });
+  renderer.setTable(match.table, { holes: match.holes, walls: false });
   renderer.setHighlight(null);
-  match.on("fall", ev => renderer.addFall(ev, penById(ev.penId)));
-  match.on("hit", ev => renderer.fx.burst(ev.x, ev.y, Math.min(2, ev.impulse), "dust"));
-  botsCtl = attachBots(match);
-  match.on("over", () => {
-    demoTimer = setTimeout(() => {
-      if (mode === "demo") { match = null; startDemo(); }
-    }, 2200);
-  });
-  match.start();
+  renderer.setPreview(null);
+  // Pens sit in the upper half of the desk, which is the part that stays
+  // clear of the button sheet. The desk itself runs full bleed and slides
+  // under the sheet, so it reads as a surface rather than a cropped object.
+  match.start([
+    { ownerId: cast[0].id, penId: cast[0].penId, x: -1.45, y: -3.45, angle: 0.42 },
+    { ownerId: cast[1].id, penId: cast[1].penId, x: 1.3, y: -2.4, angle: -0.55 },
+    { ownerId: cast[2].id, penId: cast[2].penId, x: -1.15, y: -1.2, angle: 2.35 },
+    { ownerId: cast[3].id, penId: cast[3].penId, x: 1.45, y: -0.15, angle: 1.2 }
+  ], cast.map(c => c.id));
+  frameHero();
 }
+
+// Push the desk clear of the title. Only the top is reserved: the desk is
+// meant to run off the bottom under the sheet, not be boxed between them.
+function frameHero() {
+  if (mode !== "hero") return;
+  requestAnimationFrame(() => {
+    if (mode !== "hero") return;
+    const title = document.querySelector("#s-home .home-top");
+    renderer.setHudInsets(title ? title.getBoundingClientRect().bottom + 12 : 100, 0);
+  });
+}
+window.addEventListener("resize", frameHero);
 
 function updateHomeMeta() {
   const lv = levelFor(save.xp);
@@ -1175,7 +1198,7 @@ function goHome() {
   cleanupMatch();
   updateHomeMeta();
   ui.show("s-home");
-  startDemo();
+  startHero();
 }
 
 // ---------- tutorial + settings ----------
@@ -1495,7 +1518,11 @@ document.addEventListener("pointerdown", e => {
   sfx.uiTap();
   sfx.vibrate(8);
 }, { capture: true, passive: true });
-ui.onShow(name => { if (name) sfx.uiSwish(); });
+ui.onShow(name => {
+  if (name) sfx.uiSwish();
+  // Every route back to the menu gets the backdrop, not just goHome().
+  if (name === "s-home") startHero();
+});
 
 // ---------- boot ----------
 
@@ -1523,7 +1550,7 @@ if (joinParam && onlineConfigured) {
   ui.show("s-join");
 } else {
   ui.show("s-home");
-  startDemo();
+  startHero();
 }
 
 if ("serviceWorker" in navigator) {
